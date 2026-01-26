@@ -5,6 +5,8 @@ const path = require("path");
 const fs = require("fs-extra");
 const connectDB = require("./config/db");
 const errorHandler = require("./middleware/errorHandler");
+const morgan = require("morgan");
+const helmet = require("helmet");
 
 // Load env vars
 dotenv.config();
@@ -15,9 +17,20 @@ connectDB();
 const app = express();
 
 // Middleware
+app.use(helmet({
+  crossOriginResourcePolicy: false,
+}));
+app.use(morgan("dev"));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(cors());
+
+const corsOptions = {
+  origin: process.env.FRONTEND_URL || "*",
+  methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
+  credentials: true,
+  optionsSuccessStatus: 204
+};
+app.use(cors(corsOptions));
 
 // Define Directories
 const uploadDir = path.join(__dirname, "uploads");
@@ -57,7 +70,12 @@ app.get("/health", (req, res) => {
     success: true,
     timestamp: new Date().toISOString(),
     database: mongoose.connection.readyState === 1 ? "Connected" : "Disconnected",
+    env: process.env.NODE_ENV
   });
+});
+
+app.get("/", (req, res) => {
+  res.send("Converter Tool Backend API is running...");
 });
 
 // Global Error Handler
