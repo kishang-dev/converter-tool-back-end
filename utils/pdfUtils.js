@@ -208,13 +208,26 @@ async function protectPDF(filePath, password) {
 async function pdfToImage(filePath) {
   try {
     const puppeteer = require("puppeteer");
-    const browser = await puppeteer.launch({ headless: "new" });
+    const browser = await puppeteer.launch({
+      headless: "new",
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-accelerated-2d-canvas",
+        "--no-first-run",
+        "--no-zygote",
+        "--single-process",
+        "--disable-gpu"
+      ]
+    });
     const page = await browser.newPage();
 
     // Read PDF as Base64 to avoid local file permission/path issues in some contexts
     // and easily inject into the page.
     const pdfBytes = await fs.readFile(filePath);
     const pdfData = pdfBytes.toString("base64");
+    const requestTimestamp = Date.now();
 
     // Using unpkg CDN with a specific version known to work
     const pdfJsUrl = "https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js";
@@ -225,78 +238,95 @@ async function pdfToImage(filePath) {
     const pageCount = pdfDoc.getPageCount();
     const outputPaths = [];
 
+    // Navigate to blank page once
+    await page.goto("about:blank");
+
+    // Inject PDF.js and setup environment
+    await page.setContent(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>body { margin: 0; padding: 0; overflow: hidden; background: white; }</style>
+        <script src="${pdfJsUrl}"></script>
+      </head>
+      <body>
+        <canvas id="the-canvas"></canvas>
+        <script>
+          // Set worker
+          if (window.pdfjsLib) {
+            window.pdfjsLib.GlobalWorkerOptions.workerSrc = '${pdfWorkerUrl}';
+          }
+          
+          let _pdf = null;
+          async function initPdf(base64Data) {
+            try {
+              const bin = atob(base64Data);
+              const loadingTask = pdfjsLib.getDocument({data: bin});
+              _pdf = await loadingTask.promise;
+              return { success: true, pageCount: _pdf.numPages };
+            } catch (e) {
+              return { error: e.toString() };
+            }
+          }
+
+          async function renderPage(pageNum) {
+            try {
+              if (!_pdf) return { error: "PDF not initialized" };
+              const page = await _pdf.getPage(pageNum);
+              
+              const scale = 2; // Better quality preview
+              const viewport = page.getViewport({scale: scale});
+              const canvas = document.getElementById('the-canvas');
+              const context = canvas.getContext('2d');
+              
+              canvas.height = viewport.height;
+              canvas.width = viewport.width;
+              
+              await page.render({
+                canvasContext: context,
+                viewport: viewport
+              }).promise;
+              
+              return { success: true };
+            } catch (e) {
+              return { error: e.toString() };
+            }
+          }
+        </script>
+      </body>
+      </html>
+    `);
+
+    // Wait for pdfjsLib to be available
+    await page.waitForFunction(() => window.pdfjsLib !== undefined, {
+      timeout: 30000,
+    });
+
+    // Initialize PDF once in the browser
+    const initResult = await page.evaluate(async (data) => {
+      return await window.initPdf(data);
+    }, pdfData);
+
+    if (!initResult || initResult.error) {
+      throw new Error("PDF initialization in browser failed: " + (initResult ? initResult.error : "Unknown error"));
+    }
+
+    // Render each page
     for (let i = 1; i <= pageCount; i++) {
       const outputPath = path.join(
         __dirname,
         "../outputs",
-        `page-${i}-${Date.now()}.png`,
+        `page-${i}-${requestTimestamp}.png`,
       );
 
-      // Navigate to blank page
-      await page.goto("about:blank");
-
-      // Inject logic
-      await page.setContent(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <style>body { margin: 0; padding: 0; overflow: hidden; }</style>
-          <script src="${pdfJsUrl}"></script>
-        </head>
-        <body>
-          <canvas id="the-canvas"></canvas>
-          <script>
-            // Set worker
-            if (window.pdfjsLib) {
-              window.pdfjsLib.GlobalWorkerOptions.workerSrc = '${pdfWorkerUrl}';
-            }
-            
-            async function renderPage() {
-              try {
-                if (!window.pdfjsLib) return { error: "PDF.js not loaded" };
-                
-                const pdfData = atob("${pdfData}");
-                const loadingTask = pdfjsLib.getDocument({data: pdfData});
-                const pdf = await loadingTask.promise;
-                const page = await pdf.getPage(${i});
-                
-                const scale = 2;
-                const viewport = page.getViewport({scale: scale});
-                const canvas = document.getElementById('the-canvas');
-                const context = canvas.getContext('2d');
-                
-                canvas.height = viewport.height;
-                canvas.width = viewport.width;
-                
-                await page.render({
-                  canvasContext: context,
-                  viewport: viewport
-                }).promise;
-                
-                return { success: true };
-              } catch (e) {
-                return { error: e.toString() };
-              }
-            }
-          </script>
-        </body>
-        </html>
-      `);
-
-      // Wait for pdfjsLib to be available just in case, though script tag is blocking usually.
-      // But for robust CDNs, we might need a small wait.
-      await page.waitForFunction(() => window.pdfjsLib !== undefined, {
-        timeout: 30000,
-      });
-
       // Trigger render
-      const result = await page.evaluate(async () => {
-        return await window.renderPage();
-      });
+      const renderResult = await page.evaluate(async (num) => {
+        return await window.renderPage(num);
+      }, i);
 
-      if (!result || result.error) {
+      if (!renderResult || renderResult.error) {
         throw new Error(
-          "Render failed: " + (result ? result.error : "Unknown error"),
+          `Render failed for page ${i}: ` + (renderResult ? renderResult.error : "Unknown error"),
         );
       }
 
@@ -305,7 +335,7 @@ async function pdfToImage(filePath) {
         await element.screenshot({ path: outputPath });
         outputPaths.push(outputPath);
       } else {
-        throw new Error("Canvas element not found after render");
+        throw new Error(`Canvas element not found after rendering page ${i}`);
       }
     }
 
