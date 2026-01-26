@@ -30,8 +30,21 @@ const corsOptions = {
   credentials: true,
   optionsSuccessStatus: 204
 };
-app.use(cors(corsOptions));
+const allowedOrigins = [
+  "https://rad-twilight-1dd94f.netlify.app"
+];
 
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE"]
+}));
 // Define Directories
 const uploadDir = path.join(__dirname, "uploads");
 const outputDir = path.join(__dirname, "outputs");
