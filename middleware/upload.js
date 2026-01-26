@@ -31,7 +31,8 @@ const imageFilter = (req, file, cb) => {
     "image/gif",
     "image/bmp",
     "image/tiff",
-    "image/svg+xml"
+    "image/svg+xml",
+    "image/webp"
   ];
   if (allowedMimes.includes(file.mimetype)) {
     cb(null, true);
