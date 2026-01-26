@@ -1,3 +1,8 @@
+// Provide DOMMatrix polyfill for pdf-parse/pdfjs-dist in Node.js
+if (!global.DOMMatrix) {
+  global.DOMMatrix = require("dommatrix");
+}
+
 const express = require("express");
 const cors = require("cors");
 const dotenv = require("dotenv");

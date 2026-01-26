@@ -1,7 +1,7 @@
 const PDFDocument = require("pdfkit");
 const fs = require("fs-extra");
 const path = require("path");
-const { v4: uuidv4 } = require("uuid");
+const crypto = require("crypto");
 
 /**
  * @desc    Generate PDF from text
@@ -19,7 +19,7 @@ exports.generatePdfFromText = async (req, res, next) => {
             });
         }
 
-        const fileName = `speech_${uuidv4()}.pdf`;
+        const fileName = `speech_${crypto.randomUUID()}.pdf`;
         const outputPath = path.join(__dirname, "../outputs", fileName);
 
         // Ensure outputs directory exists

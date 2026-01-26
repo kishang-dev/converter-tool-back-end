@@ -17,6 +17,7 @@
     "chroma-js": "^3.2.0",
     "cors": "^2.8.5",
     "docx": "^9.5.1",
+    "dommatrix": "^1.0.3",
     "dotenv": "^17.2.3",
     "exceljs": "^4.4.0",
     "express": "^5.2.1",

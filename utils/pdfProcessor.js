@@ -1,3 +1,8 @@
+// Provide DOMMatrix polyfill for pdf-parse/pdfjs-dist in Node.js
+if (!global.DOMMatrix) {
+  global.DOMMatrix = require("dommatrix");
+}
+
 const fs = require("fs");
 const path = require("path");
 const pdf = require("pdf-parse");
@@ -124,8 +129,7 @@ async function processPDF(filePath, originalName) {
         }
 
         console.log(
-          `pdf-poppler processed successfully and generated ${
-            imagesBuffers.filter(Boolean).length
+          `pdf-poppler processed successfully and generated ${imagesBuffers.filter(Boolean).length
           } page images with OCR text extraction.`
         );
       } else {
@@ -136,8 +140,8 @@ async function processPDF(filePath, originalName) {
     } catch (popplerError) {
       console.warn(
         `pdf-poppler processing failed for ${originalName}: ${popplerError.message}. ` +
-          `This is likely due to Poppler utilities not being installed or configured in PATH. ` +
-          `Proceeding without page images and OCR.`
+        `This is likely due to Poppler utilities not being installed or configured in PATH. ` +
+        `Proceeding without page images and OCR.`
       );
     }
 
@@ -207,7 +211,7 @@ async function processWithPdfPoppler(filePath, docId, totalPages) {
   } catch (requireError) {
     throw new Error(
       "The 'pdf-poppler' module is not installed. Please install it: `npm install pdf-poppler`. " +
-        "Also, ensure Poppler command-line utilities are installed on your system (e.g., `sudo apt-get install poppler-utils` on Ubuntu)."
+      "Also, ensure Poppler command-line utilities are installed on your system (e.g., `sudo apt-get install poppler-utils` on Ubuntu)."
     );
   }
 
