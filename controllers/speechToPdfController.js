@@ -59,10 +59,23 @@ exports.generatePdfFromText = async (req, res, next) => {
         doc.end();
 
         // Wait for the stream to finish writing
-        stream.on("finish", () => {
+        stream.on("finish", async () => {
             const protocol = req.protocol;
             const host = req.get("host");
             const downloadUrl = `${protocol}://${host}/outputs/${fileName}`;
+
+            const File = require("../models/File");
+            await File.create({
+                filename: fileName,
+                originalName: title + ".pdf",
+                path: outputPath,
+                size: (await fs.stat(outputPath)).size,
+                mimeType: "application/pdf",
+                operation: "convert", // or speech-to-pdf
+                status: "completed",
+                user: req.user ? req.user._id : undefined,
+                guestId: req.user ? undefined : req.headers['x-guest-id']
+            });
 
             res.status(200).json({
                 success: true,

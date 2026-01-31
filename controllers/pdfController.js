@@ -9,7 +9,17 @@ const uploadPdf = async (req, res, next) => {
 
   try {
     console.log(`Received upload: ${req.file.originalname}`);
+
+    // Pass user/guest info to processPDF or update it after
     const pdfDoc = await processPDF(req.file.path, req.file.originalname);
+
+    // Update ownership
+    if (req.user) {
+      pdfDoc.user = req.user._id;
+    } else if (req.headers['x-guest-id']) {
+      pdfDoc.guestId = req.headers['x-guest-id'];
+    }
+    await pdfDoc.save();
 
     res.json({
       message: "PDF uploaded and processed successfully with OCR",
@@ -51,6 +61,14 @@ const getPdfContent = async (req, res, next) => {
     });
     if (!pdf) {
       return res.status(404).json({ error: "PDF not found" });
+    }
+
+    // Check ownership
+    const isOwner = (req.user && pdf.user && pdf.user.toString() === req.user._id.toString()) ||
+      (!req.user && pdf.guestId && pdf.guestId === req.headers['x-guest-id']);
+
+    if (!isOwner) {
+      return res.status(403).json({ error: "Not authorized to access this file" });
     }
 
     // Check if any page has OCR text
@@ -166,8 +184,18 @@ const getOriginalPdf = async (req, res, next) => {
 
 const listAllPdfs = async (req, res, next) => {
   try {
+    let query = {};
+    if (req.user) {
+      query = { user: req.user._id };
+    } else if (req.headers['x-guest-id']) {
+      query = { guestId: req.headers['x-guest-id'] };
+    } else {
+      // If neither (should be caught by middleware normally, but safe fallback)
+      return res.json([]);
+    }
+
     const pdfs = await Pdf.find(
-      {},
+      query,
       {
         fileName: 1,
         "metadata.totalPages": 1,
@@ -207,10 +235,20 @@ const listAllPdfs = async (req, res, next) => {
 
 const deletePdf = async (req, res, next) => {
   try {
-    const result = await Pdf.findByIdAndDelete(req.params.id);
-    if (!result) {
+    const pdf = await Pdf.findById(req.params.id);
+    if (!pdf) {
       return res.status(404).json({ error: "PDF not found" });
     }
+
+    // Check ownership
+    const isOwner = (req.user && pdf.user && pdf.user.toString() === req.user._id.toString()) ||
+      (!req.user && pdf.guestId && pdf.guestId === req.headers['x-guest-id']);
+
+    if (!isOwner) {
+      return res.status(403).json({ error: "Not authorized to delete this file" });
+    }
+
+    await Pdf.findByIdAndDelete(req.params.id);
     res.json({ message: "PDF deleted successfully" });
   } catch (error) {
     next(error);

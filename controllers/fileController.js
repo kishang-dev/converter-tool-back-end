@@ -26,7 +26,10 @@ exports.uploadFiles = async (req, res) => {
                     path: file.path,
                     size: file.size,
                     mimeType: file.mimetype,
+                    mimeType: file.mimetype,
                     operation: "upload",
+                    user: req.user ? req.user._id : undefined,
+                    guestId: req.user ? undefined : req.headers['x-guest-id']
                 });
             })
         );
@@ -44,7 +47,16 @@ exports.uploadFiles = async (req, res) => {
 
 exports.getAllFiles = async (req, res) => {
     try {
-        const files = await File.find().sort({ createdAt: -1 }).limit(50);
+        let query = {};
+        if (req.user) {
+            query = { user: req.user._id };
+        } else if (req.headers['x-guest-id']) {
+            query = { guestId: req.headers['x-guest-id'] };
+        } else {
+            return res.json({ success: true, files: [] });
+        }
+
+        const files = await File.find(query).sort({ createdAt: -1 }).limit(50);
         res.json({ success: true, files });
     } catch (error) {
         res.status(500).json({ error: "Failed to fetch files", details: error.message });
@@ -86,6 +98,8 @@ exports.mergeFiles = async (req, res) => {
             mimeType: "application/pdf",
             operation: "merge",
             status: "completed",
+            user: req.user ? req.user._id : undefined,
+            guestId: req.user ? undefined : req.headers['x-guest-id']
         });
 
         res.json({
@@ -120,6 +134,8 @@ exports.splitFile = async (req, res) => {
                     mimeType: "application/pdf",
                     operation: "split",
                     status: "completed",
+                    user: req.user ? req.user._id : undefined,
+                    guestId: req.user ? undefined : req.headers['x-guest-id']
                 });
             })
         );
@@ -150,6 +166,8 @@ exports.rotateFile = async (req, res) => {
             mimeType: "application/pdf",
             operation: "rotate",
             status: "completed",
+            user: req.user ? req.user._id : undefined,
+            guestId: req.user ? undefined : req.headers['x-guest-id']
         });
 
         res.json({ success: true, message: "PDF rotated", file: rotatedFile });
@@ -173,6 +191,8 @@ exports.compressFile = async (req, res) => {
             mimeType: "application/pdf",
             operation: "compress",
             status: "completed",
+            user: req.user ? req.user._id : undefined,
+            guestId: req.user ? undefined : req.headers['x-guest-id']
         });
 
         res.json({ success: true, message: "PDF compressed", file: compressedFile });
@@ -199,6 +219,8 @@ exports.convertToImage = async (req, res) => {
                     mimeType: "image/png",
                     operation: "convert-image",
                     status: "completed",
+                    user: req.user ? req.user._id : undefined,
+                    guestId: req.user ? undefined : req.headers['x-guest-id']
                 });
             })
         );
@@ -230,6 +252,8 @@ exports.protectFile = async (req, res) => {
             mimeType: "application/pdf",
             operation: "protect",
             status: "completed",
+            user: req.user ? req.user._id : undefined,
+            guestId: req.user ? undefined : req.headers['x-guest-id']
         });
 
         res.json({ success: true, message: "PDF protected successfully", file: protectedFile });
@@ -321,6 +345,8 @@ exports.editFile = async (req, res) => {
             mimeType: "application/pdf",
             operation: "edit",
             status: "completed",
+            user: req.user ? req.user._id : undefined,
+            guestId: req.user ? undefined : req.headers['x-guest-id']
         });
 
         res.json({
@@ -387,6 +413,8 @@ exports.savePageContent = async (req, res) => {
             mimeType: "application/pdf",
             operation: "content-edit",
             status: "completed",
+            user: req.user ? req.user._id : undefined,
+            guestId: req.user ? undefined : req.headers['x-guest-id']
         });
 
         res.json({
@@ -418,6 +446,8 @@ exports.addPage = async (req, res) => {
             size: (await fs.stat(outputPath)).size,
             mimeType: "application/pdf",
             operation: "edit",
+            user: req.user ? req.user._id : undefined,
+            guestId: req.user ? undefined : req.headers['x-guest-id']
         });
 
         res.json({

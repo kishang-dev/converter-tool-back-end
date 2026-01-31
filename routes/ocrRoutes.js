@@ -5,9 +5,12 @@ const router = express.Router();
 const { imageUpload } = require("../middleware/upload"); // Import image upload middleware
 const ocrController = require("../controllers/ocrController"); // Import OCR controller
 
+const { checkUsage } = require("../middleware/authMiddleware");
+
 // Image upload and OCR processing route
 router.post(
   "/upload-and-ocr",
+  checkUsage,
   imageUpload.single("image"),
   ocrController.uploadAndOcr
 );

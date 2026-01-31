@@ -29,29 +29,11 @@ app.use(morgan("dev"));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-const allowedOrigins = [
-  process.env.FRONTEND_URL,
-  "https://rad-twilight-1dd94f.netlify.app",
-  "http://localhost:3000",
-  "http://localhost:5173", // Vite default
-  "http://localhost:5000"
-].filter(Boolean);
-
 app.use(cors({
-  origin: function (origin, callback) {
-    // allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-
-    if (allowedOrigins.indexOf(origin) === -1) {
-      console.log(`CORS blocked for origin: ${origin}`);
-      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-      return callback(new Error(msg), false);
-    }
-    return callback(null, true);
-  },
+  origin: true, // Allow all origins reflected
   credentials: true,
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
-  allowedHeaders: ["Content-Type", "Authorization"]
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Guest-ID"]
 }));
 // Define Directories
 const uploadDir = path.join(__dirname, "uploads");
@@ -82,6 +64,7 @@ app.use("/api", pdfRoutes);
 app.use("/api", ocrRoutes);
 app.use("/api", svgRoutes);
 app.use("/api", speechToPdfRoutes);
+app.use("/api/auth", require("./routes/authRoutes"));
 
 // Health Check Route
 app.get("/health", (req, res) => {
