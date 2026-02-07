@@ -57,6 +57,7 @@ const pdfRoutes = require("./routes/pdfRoutes");
 const ocrRoutes = require("./routes/ocrRoutes");
 const svgRoutes = require("./routes/svgRoutes");
 const speechToPdfRoutes = require("./routes/speechToPdfRoutes");
+const conversionRoutes = require("./routes/conversionRoutes");
 
 // Mount Routes
 app.use("/api/files", fileRoutes);
@@ -64,6 +65,7 @@ app.use("/api", pdfRoutes);
 app.use("/api", ocrRoutes);
 app.use("/api", svgRoutes);
 app.use("/api", speechToPdfRoutes);
+app.use("/api", conversionRoutes);
 app.use("/api/auth", require("./routes/authRoutes"));
 
 // Health Check Route
