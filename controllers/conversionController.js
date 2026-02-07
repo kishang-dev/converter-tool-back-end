@@ -24,30 +24,82 @@ async function createFileRecord(req, originalName, outputPath, mimeType, operati
 }
 
 // 1. PDF to PowerPoint
+// 1. PDF to PowerPoint
 exports.pdfToPptx = async (req, res) => {
     try {
         const { fileId } = req.body;
         const file = await File.findById(fileId);
         if (!file) return res.status(404).json({ error: "File not found" });
 
-        // Convert PDF pages to images first
-        const imagePaths = await pdfToImage(file.path);
+        const pdfParser = new PDFParser();
+
+        const pdfData = await new Promise((resolve, reject) => {
+            pdfParser.on("pdfParser_dataError", errData => reject(errData.parserError));
+            pdfParser.on("pdfParser_dataReady", pdfData => resolve(pdfData));
+            pdfParser.loadPDF(file.path);
+        });
 
         const pres = new pptxgen();
 
-        for (const imgPath of imagePaths) {
-            const slide = pres.addSlide();
-            // Add image to slide, fitting it to cover the slide
-            slide.addImage({ path: imgPath, x: 0, y: 0, w: "100%", h: "100%" });
+        // Scale for pdf2json units to PPTX units (inches)
+        // pdf2json units are often small.
+        // A4 width in pdf2json is ~30-40 sometimes? 
+        // PPTX default slide is 10x5.625 inches.
+        // Let's analyze width.
+        // pdfData.formImage.Width is usually the width in pdf2json units.
+        const pdfWidth = pdfData.formImage ? pdfData.formImage.Width : 0;
+        // If pdfWidth is e.g. 35, and we want 10 inches, scale is 10/35.
+        // But usually we just want to place items relatively.
+
+        // Better: Use a fixed scale converted from PDF points if possible?
+        // Let's assume pdf2json unit * constant = inches.
+        // Empirically, pdf2json unit is roughly 1/4.5 inch ?? No.
+        // Let's try to fit to slide.
+
+        // Iterate Pages
+        const pages = pdfData.formImage ? pdfData.formImage.Pages : pdfData.Pages;
+
+        if (pages) {
+            for (const page of pages) {
+                const slide = pres.addSlide();
+
+                // Calculate simple scale to fit width to 10 inches
+                // page.Width might be ~30. 
+                const scaleX = 10 / (page.Width || 30);
+                const scaleY = 5.625 / (page.Height || 20); // standard 16:9? Or 4:3? 
+                // Let's stick to 10 inches width.
+
+                if (page.Texts) {
+                    for (const text of page.Texts) {
+                        // text.x, text.y, text.w
+                        // text.R[0].T is content
+                        // text.R[0].TS is style [fontIndex, fontSize, bold, italic]
+
+                        let str = "";
+                        text.R.forEach(r => str += decodeURIComponent(r.T));
+
+                        const x = text.x * scaleX;
+                        const y = text.y * scaleY;
+
+                        // Font size scaling
+                        // TS[1] is roughly points? 
+                        // We need to experiment.
+                        const fontSize = (text.R[0].TS[1] || 12) * 0.7; // Adjustment factor
+
+                        slide.addText(str, {
+                            x: x,
+                            y: y,
+                            fontSize: fontSize,
+                            color: "000000",
+                            w: "90%" // Auto width?
+                        });
+                    }
+                }
+            }
         }
 
         const outputPath = path.join(__dirname, "../outputs", `converted-${Date.now()}.pptx`);
         await pres.writeFile({ fileName: outputPath });
-
-        // Cleanup images
-        for (const imgPath of imagePaths) {
-            await fs.remove(imgPath).catch(console.error);
-        }
 
         const pptxFile = await createFileRecord(req, file.originalName.replace(".pdf", ".pptx"), outputPath, "application/vnd.openxmlformats-officedocument.presentationml.presentation", "convert-pdf-to-pptx");
 
@@ -206,20 +258,45 @@ exports.pdfToText = async (req, res) => {
 
         const pdfParser = new PDFParser(this, 1); // 1 = text content only
 
-        await new Promise((resolve, reject) => {
+        const pdfData = await new Promise((resolve, reject) => {
             pdfParser.on("pdfParser_dataError", errData => reject(errData.parserError));
             pdfParser.on("pdfParser_dataReady", pdfData => resolve(pdfData));
             pdfParser.loadPDF(file.path);
         });
 
-        const textContent = pdfParser.getRawTextContent();
+        // Manual text extraction for better control
+        let fullText = "";
+
+        // Handle different pdf2json structures (sometimes it's formImage.Pages, sometimes Pages)
+        const pages = pdfData.formImage ? pdfData.formImage.Pages : pdfData.Pages;
+
+        if (pages) {
+            pages.forEach((page, pageIndex) => {
+                if (pageIndex > 0) fullText += "\n\n--- Page " + (pageIndex + 1) + " ---\n\n";
+
+                // Simple text concatenation
+                // A more advanced version would sort by y-position
+                page.Texts.forEach(text => {
+                    text.R.forEach(r => {
+                        fullText += decodeURIComponent(r.T) + " ";
+                    });
+                    // Add newline if typical line break? hard to guess without layout analysis.
+                    // pdf2json doesn't give explicit lines easily in raw text mode without analysis.
+                    // But we can just append space.
+                    // Or we can try to detect Y changes.
+                });
+            });
+        } else {
+            // Fallback
+            fullText = pdfParser.getRawTextContent();
+        }
 
         const outputPath = path.join(__dirname, "../outputs", `extracted-${Date.now()}.txt`);
-        await fs.writeFile(outputPath, textContent);
+        await fs.writeFile(outputPath, fullText);
 
         const txtFile = await createFileRecord(req, file.originalName.replace(".pdf", ".txt"), outputPath, "text/plain", "convert-pdf-to-text");
 
-        res.json({ success: true, message: "Text extracted from PDF", file: txtFile, textPreview: textContent.substring(0, 1000) });
+        res.json({ success: true, message: "Text extracted from PDF", file: txtFile, textPreview: fullText.substring(0, 2000) });
     } catch (error) {
         console.error("PDF to Text error:", error);
         res.status(500).json({ error: "Extraction failed", details: error.message });
