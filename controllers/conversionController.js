@@ -41,61 +41,74 @@ exports.pdfToPptx = async (req, res) => {
 
         const pres = new pptxgen();
 
-        // Scale for pdf2json units to PPTX units (inches)
-        // pdf2json units are often small.
-        // A4 width in pdf2json is ~30-40 sometimes? 
-        // PPTX default slide is 10x5.625 inches.
-        // Let's analyze width.
-        // pdfData.formImage.Width is usually the width in pdf2json units.
-        const pdfWidth = pdfData.formImage ? pdfData.formImage.Width : 0;
-        // If pdfWidth is e.g. 35, and we want 10 inches, scale is 10/35.
-        // But usually we just want to place items relatively.
+        // Helper to convert PDF points to PPTX inches
+        // 72 points = 1 inch
+        const ptsToInches = (pts) => pts / 72;
 
-        // Better: Use a fixed scale converted from PDF points if possible?
-        // Let's assume pdf2json unit * constant = inches.
-        // Empirically, pdf2json unit is roughly 1/4.5 inch ?? No.
-        // Let's try to fit to slide.
-
-        // Iterate Pages
         const pages = pdfData.formImage ? pdfData.formImage.Pages : pdfData.Pages;
 
-        if (pages) {
+        if (pages && Array.isArray(pages)) {
             for (const page of pages) {
                 const slide = pres.addSlide();
 
-                // Calculate simple scale to fit width to 10 inches
-                // page.Width might be ~30. 
-                const scaleX = 10 / (page.Width || 30);
-                const scaleY = 5.625 / (page.Height || 20); // standard 16:9? Or 4:3? 
-                // Let's stick to 10 inches width.
+                // Get page dimensions in PDF points (default if missing)
+                // pdf2json usually returns units in specialized "pdf units" which are roughly 1/25 or 1/30 of an inch?
+                // Actually, pdf2json documentation says: 
+                // "Width: page width in 1/72 inch" -> NO.
+                // It seems pdf2json uses its own unit. 
+                // The common consensus is to use a multiplier.
+                // Let's rely on relative positioning to be safe, OR try to map standard A4.
+
+                // Standard approach for pdf2json:
+                // text.x and text.y are in page units.
+                // We need to map these to PPTX inches (10 x 5.625 default).
+
+                // Let's assume the PDF is A4 (approx 8.27 x 11.7 inches) or Letter (8.5 x 11).
+                // pdf2json width for A4 is often around ~35-40 units.
+
+                const pageWidth = page.Width || 40;
+                const pageHeight = page.Height || 20;
+
+                const scaleX = 10 / pageWidth;
+                // If we want to maintain aspect ratio, we should adjust slide size or scale differently.
+                // But for now, let's stretch/fit to the default 16:9 slide to ensure visibility.
+                const scaleY = 5.625 / pageHeight;
 
                 if (page.Texts) {
                     for (const text of page.Texts) {
-                        // text.x, text.y, text.w
-                        // text.R[0].T is content
-                        // text.R[0].TS is style [fontIndex, fontSize, bold, italic]
-
                         let str = "";
                         text.R.forEach(r => str += decodeURIComponent(r.T));
 
+                        // x, y in pdf2json units
                         const x = text.x * scaleX;
                         const y = text.y * scaleY;
 
-                        // Font size scaling
-                        // TS[1] is roughly points? 
-                        // We need to experiment.
-                        const fontSize = (text.R[0].TS[1] || 12) * 0.7; // Adjustment factor
+                        // Font size in pdf2json is also in its own units.
+                        // We need to convert to points.
+                        // text.R[0].TS[1] is the font size index or value.
+                        // Empirically, roughly TS[1] * 1.5 works for points often, or just take it as is.
+                        // Let's try to infer from page height ratio.
+                        const rawFontSize = text.R[0].TS[1] || 12;
+                        const fontSize = Math.max(8, rawFontSize * 0.8); // slight reduction
 
                         slide.addText(str, {
                             x: x,
                             y: y,
                             fontSize: fontSize,
                             color: "000000",
-                            w: "90%" // Auto width?
+                            w: "100%", // Let it flow?
+                            h: 0.5 // Minimal height
                         });
                     }
                 }
+
+                // Also handle lines/fills if possible? (Skipping for now to prioritize text)
             }
+        } else {
+            console.log("No pages found in PDF data");
+            // Add a blank slide saying "Conversion Warning"
+            const slide = pres.addSlide();
+            slide.addText("Could not extract pages from PDF.", { x: 1, y: 1, fontSize: 18, color: "FF0000" });
         }
 
         const outputPath = path.join(__dirname, "../outputs", `converted-${Date.now()}.pptx`);
