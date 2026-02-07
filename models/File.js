@@ -42,7 +42,13 @@ const fileSchema = new mongoose.Schema(
         "image",
         "convert-image",
         "edit",
-        "content-edit"
+        "content-edit",
+        "convert-pdf-to-pptx",
+        "convert-excel-to-pdf",
+        "convert-ppt-to-pdf",
+        "convert-html-to-pdf",
+        "convert-pdf-to-text",
+        "convert-pdf-to-html"
       ],
       default: "upload",
     },
