@@ -1,11 +1,11 @@
 const express = require("express");
 const router = express.Router();
 const fileController = require("../controllers/fileController");
-const { pdfUpload } = require("../middleware/upload");
+const { documentUpload } = require("../middleware/upload");
 const { checkUsage, identifyUser } = require("../middleware/authMiddleware");
 
 // Upload single or multiple files
-router.post("/upload", checkUsage, pdfUpload.array("files", 10), fileController.uploadFiles);
+router.post("/upload", checkUsage, documentUpload.array("files", 10), fileController.uploadFiles);
 
 // File management
 router.get("/", identifyUser, fileController.getAllFiles);
