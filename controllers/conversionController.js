@@ -204,15 +204,22 @@ exports.pdfToText = async (req, res) => {
         const file = await File.findById(fileId);
         if (!file) return res.status(404).json({ error: "File not found" });
 
-        const dataBuffer = await fs.readFile(file.path);
-        const data = await pdfParse(dataBuffer);
+        const pdfParser = new PDFParser(this, 1); // 1 = text content only
+
+        await new Promise((resolve, reject) => {
+            pdfParser.on("pdfParser_dataError", errData => reject(errData.parserError));
+            pdfParser.on("pdfParser_dataReady", pdfData => resolve(pdfData));
+            pdfParser.loadPDF(file.path);
+        });
+
+        const textContent = pdfParser.getRawTextContent();
 
         const outputPath = path.join(__dirname, "../outputs", `extracted-${Date.now()}.txt`);
-        await fs.writeFile(outputPath, data.text);
+        await fs.writeFile(outputPath, textContent);
 
         const txtFile = await createFileRecord(req, file.originalName.replace(".pdf", ".txt"), outputPath, "text/plain", "convert-pdf-to-text");
 
-        res.json({ success: true, message: "Text extracted from PDF", file: txtFile, textPreview: data.text.substring(0, 1000) });
+        res.json({ success: true, message: "Text extracted from PDF", file: txtFile, textPreview: textContent.substring(0, 1000) });
     } catch (error) {
         console.error("PDF to Text error:", error);
         res.status(500).json({ error: "Extraction failed", details: error.message });
