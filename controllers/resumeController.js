@@ -306,15 +306,24 @@ exports.exportResume = async (req, res) => {
         const { html } = req.body;
         if (!html) return res.status(400).json({ error: 'HTML content is required' });
 
+        console.log(`Generating PDF. HTML length: ${html.length}`);
+
         const browser = await puppeteer.launch({
-            headless: true,
+            headless: "new",
             args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
         });
         const page = await browser.newPage();
+
+        // Set a standard viewport
+        await page.setViewport({ width: 1200, height: 1600 });
+
         await page.setContent(html, {
-            waitUntil: 'networkidle2',
+            waitUntil: 'networkidle0',
             timeout: 60000
         });
+
+        // Wait for fonts and styles to fully render
+        await new Promise(r => setTimeout(r, 2000));
 
         const outputPath = path.join(__dirname, '../outputs', filename);
 
