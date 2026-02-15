@@ -349,78 +349,171 @@ async function pdfToImage(filePath) {
 // PDF to Word
 async function pdfToWord(filePath) {
   try {
+    const { PDFExtract } = require("pdf.js-extract");
+    const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } = require("docx");
     const { createWorker } = require("tesseract.js");
-    const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
 
-    const dataBuffer = await fs.readFile(filePath);
-    const data = new Uint8Array(dataBuffer);
-
-    let extractedText = "";
-
+    const extractor = new PDFExtract();
+    let data;
     try {
-      const loadingTask = pdfjsLib.getDocument({ data });
-      const pdfDocument = await loadingTask.promise;
-      const numPages = pdfDocument.numPages;
-
-      for (let i = 1; i <= numPages; i++) {
-        const page = await pdfDocument.getPage(i);
-        const tokenizedText = await page.getTextContent();
-        const pageText = tokenizedText.items
-          .map((token) => token.str)
-          .join(" ");
-        extractedText += pageText + "\n";
-      }
+      data = await extractor.extract(filePath, {});
     } catch (e) {
-      console.error("PDF.js text extraction failed, fallback to OCR:", e);
+      console.error("pdf.js-extract failed:", e);
     }
 
-    // If no text was extracted, try OCR
-    if (!extractedText || extractedText.trim().length === 0) {
-      console.log("No text extracted, attempting OCR...");
-      const imagePaths = await pdfToImage(filePath);
+    let docChildren = [];
 
+    const createWordParagraph = (items) => {
+      if (!items || items.length === 0) return null;
+
+      // Filter out purely whitespace items for property analysis but keep them for text reconstruction
+      const textItems = items.filter(item => item.str && item.str.trim().length > 0);
+      if (textItems.length === 0) return null;
+
+      // Group consecutive items with same font properties
+      const runs = [];
+      let currentRunText = "";
+      let lastPropsKey = null;
+
+      items.forEach((item) => {
+        // Simple bold/italic detection from font name
+        const fontName = (item.fontName || "").toLowerCase();
+        const isBold = fontName.includes("bold") || fontName.includes("black") || fontName.includes("heavy");
+        const isItalic = fontName.includes("italic") || fontName.includes("oblique");
+        const size = Math.round(item.height * 2);
+
+        const props = { bold: isBold, italics: isItalic, size };
+        const propsKey = JSON.stringify(props);
+
+        if (lastPropsKey !== null && propsKey !== lastPropsKey) {
+          runs.push(new TextRun({ text: currentRunText, ...JSON.parse(lastPropsKey) }));
+          currentRunText = "";
+        }
+
+        currentRunText += item.str;
+        lastPropsKey = propsKey;
+      });
+
+      if (currentRunText) {
+        runs.push(new TextRun({ text: currentRunText, ...JSON.parse(lastPropsKey) }));
+      }
+
+      // Heading detection
+      const avgHeight = textItems.reduce((sum, item) => sum + item.height, 0) / textItems.length;
+      let heading = undefined;
+
+      // Heuristics for headings based on font size
+      if (avgHeight > 22) heading = HeadingLevel.HEADING_1;
+      else if (avgHeight > 16) heading = HeadingLevel.HEADING_2;
+      else if (avgHeight > 13) heading = HeadingLevel.HEADING_3;
+
+      const isCentered = items[0].x > 150 && items[items.length - 1].x < 450 && items.length < 5; // Very basic centered check
+
+      return new Paragraph({
+        children: runs,
+        heading: heading,
+        spacing: {
+          after: heading ? 240 : 120,
+          before: heading ? 240 : 0
+        },
+        alignment: isCentered ? AlignmentType.CENTER : AlignmentType.LEFT
+      });
+    };
+
+    if (data && data.pages && data.pages.length > 0) {
+      data.pages.forEach((page) => {
+        const items = page.content;
+        if (!items || items.length === 0) return;
+
+        // Group by Y (lines) with tolerance
+        const linesMap = new Map();
+        items.forEach((item) => {
+          const y = item.y;
+          let foundKey = Array.from(linesMap.keys()).find((k) => Math.abs(k - y) < 4);
+          if (foundKey === undefined) {
+            foundKey = y;
+            linesMap.set(foundKey, []);
+          }
+          linesMap.get(foundKey).push(item);
+        });
+
+        const sortedY = Array.from(linesMap.keys()).sort((a, b) => a - b);
+        let currentParaItems = [];
+        let lastLineY = -1;
+        let lastLineHeight = 12;
+
+        sortedY.forEach((y, idx) => {
+          const lineItems = linesMap.get(y).sort((a, b) => a.x - b.x);
+          const lineAvgHeight = lineItems.reduce((s, i) => s + i.height, 0) / lineItems.length;
+
+          // Detect new paragraph
+          const verticalGap = lastLineY === -1 ? 0 : y - (lastLineY + lastLineHeight);
+          const isLargeGap = lastLineY !== -1 && verticalGap > lastLineHeight * 0.8;
+          const isFontChange = lastLineY !== -1 && Math.abs(lineAvgHeight - lastLineHeight) > 2;
+
+          if (idx > 0 && (isLargeGap || isFontChange)) {
+            if (currentParaItems.length > 0) {
+              const p = createWordParagraph(currentParaItems);
+              if (p) docChildren.push(p);
+              currentParaItems = [];
+            }
+          }
+
+          currentParaItems.push(...lineItems);
+          // Add space between lines if they are likely part of same paragraph but separated in PDF items
+          if (idx < sortedY.length - 1) {
+            currentParaItems.push({ str: " ", height: lineAvgHeight, fontName: lineItems[0].fontName });
+          }
+
+          lastLineY = y;
+          lastLineHeight = lineAvgHeight;
+        });
+
+        if (currentParaItems.length > 0) {
+          const p = createWordParagraph(currentParaItems);
+          if (p) docChildren.push(p);
+        }
+      });
+    }
+
+    // OCR Fallback if no text extracted via standard methods
+    if (docChildren.length === 0) {
+      console.log("No text extracted via layout analysis, attempting OCR fallback...");
+      const imagePaths = await pdfToImage(filePath);
       const worker = await createWorker("eng");
 
       for (const imgPath of imagePaths) {
-        const {
-          data: { text },
-        } = await worker.recognize(imgPath);
-        extractedText += text + "\n\n";
+        const { data: { text } } = await worker.recognize(imgPath);
+        if (text) {
+          text.split("\n").forEach((line) => {
+            if (line.trim()) {
+              docChildren.push(new Paragraph({
+                children: [new TextRun(line.trim())],
+                spacing: { after: 120 }
+              }));
+            }
+          });
+        }
         // Clean up image file
         await fs.remove(imgPath);
       }
-
       await worker.terminate();
     }
 
-    const dataObj = {
-      text: extractedText || "No text extracted even with OCR",
-    };
-
     const doc = new Document({
-      sections: [
-        {
-          properties: {},
-          children: dataObj.text.split("\n").map(
-            (line) =>
-              new Paragraph({
-                children: [new TextRun(line)],
-              }),
-          ),
-        },
-      ],
+      sections: [{
+        properties: {},
+        children: docChildren
+      }]
     });
 
     const buffer = await Packer.toBuffer(doc);
-    const outputPath = path.join(
-      __dirname,
-      "../outputs",
-      `converted-${Date.now()}.docx`,
-    );
+    const outputPath = path.join(__dirname, "../outputs", `converted-${Date.now()}.docx`);
     await fs.writeFile(outputPath, buffer);
 
     return outputPath;
   } catch (error) {
+    console.error("PDF to Word Error:", error);
     throw new Error(`PDF to Word conversion failed: ${error.message}`);
   }
 }
