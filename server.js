@@ -58,6 +58,7 @@ const ocrRoutes = require("./routes/ocrRoutes");
 const svgRoutes = require("./routes/svgRoutes");
 const speechToPdfRoutes = require("./routes/speechToPdfRoutes");
 const conversionRoutes = require("./routes/conversionRoutes");
+const chartRoutes = require("./routes/chartRoutes");
 
 // Mount Routes
 app.use("/api/files", fileRoutes);
@@ -68,6 +69,7 @@ app.use("/api", speechToPdfRoutes);
 app.use("/api", conversionRoutes);
 app.use("/api/auth", require("./routes/authRoutes"));
 app.use("/api/resumes", require("./routes/resumeRoutes"));
+app.use("/api/charts", chartRoutes);
 
 // Health Check Route
 app.get("/health", (req, res) => {
