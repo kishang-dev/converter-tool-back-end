@@ -6,7 +6,8 @@ const {
     getChartById,
     updateChart,
     deleteChart,
-    exportFlowchart
+    exportFlowchart,
+    generateChartWithAI
 } = require("../controllers/chartController");
 
 const router = express.Router();
@@ -15,6 +16,8 @@ const router = express.Router();
 router.route("/")
     .post(identifyUser, createChart)
     .get(identifyUser, getCharts);
+
+router.post("/generate-ai", identifyUser, generateChartWithAI);
 
 router.route("/:id")
     .get(identifyUser, getChartById)
