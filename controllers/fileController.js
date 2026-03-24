@@ -374,6 +374,7 @@ exports.getPreviewImages = async (req, res) => {
 
         res.json({ success: true, images: imageUrls });
     } catch (error) {
+        console.error("Failed to generate previews:", error);
         res.status(500).json({ error: "Failed to generate previews", details: error.message });
     }
 };

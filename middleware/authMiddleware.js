@@ -81,8 +81,8 @@ exports.checkUsage = async (req, res, next) => {
             guestUsage = await GuestUsage.create({ guestId, ip: req.ip, usageCount: 0 });
         }
 
-        // Configurable free limit (1 free try)
-        const FREE_LIMIT = 1;
+        // Configurable free limit (increased to 5 for smoother user journey/testing)
+        const FREE_LIMIT = 5;
 
         if (guestUsage.usageCount >= FREE_LIMIT) {
             return res.status(403).json({

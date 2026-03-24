@@ -207,39 +207,78 @@ async function protectPDF(filePath, password) {
 // PDF to Image
 async function pdfToImage(filePath) {
   try {
+    console.log(`[pdfToImage] Starting conversion for ${filePath}`);
     const puppeteer = require("puppeteer");
-    const browser = await puppeteer.launch({
-      headless: "new",
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-        "--disable-accelerated-2d-canvas",
-        "--no-first-run",
-        "--no-zygote",
-        "--single-process",
-        "--disable-gpu"
-      ]
-    });
+    console.log(`[pdfToImage] Launching Puppeteer...`);
+
+    let browser;
+    try {
+      browser = await puppeteer.launch({
+        headless: "new",
+        args: [
+          "--no-sandbox",
+          "--disable-setuid-sandbox",
+          "--disable-dev-shm-usage",
+          "--disable-accelerated-2d-canvas",
+        ],
+      });
+    } catch (launchError) {
+      console.warn(
+        `[pdfToImage] Default Puppeteer launch failed, trying system Chrome: ${launchError.message}`,
+      );
+      // Fallback for Windows common paths
+      const fallbackPaths = [
+        "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+        "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+      ];
+
+      let success = false;
+      for (const exePath of fallbackPaths) {
+        try {
+          if (await fs.pathExists(exePath)) {
+            console.log(
+              `[pdfToImage] Found Chrome at ${exePath}, trying to launch...`,
+            );
+            browser = await puppeteer.launch({
+              executablePath: exePath,
+              headless: "new",
+              args: ["--no-sandbox"],
+            });
+            success = true;
+            console.log(`[pdfToImage] Local Chrome launch SUCCESS!`);
+            break;
+          }
+        } catch (e) {
+          console.warn(
+            `[pdfToImage] Failed to launch Chrome at ${exePath}: ${e.message}`,
+          );
+        }
+      }
+
+      if (!success) throw launchError;
+    }
+
     const page = await browser.newPage();
+    console.log(`[pdfToImage] Browser launched, loading page...`);
 
     // Read PDF as Base64 to avoid local file permission/path issues in some contexts
     // and easily inject into the page.
     const pdfBytes = await fs.readFile(filePath);
     const pdfData = pdfBytes.toString("base64");
     const requestTimestamp = Date.now();
+    const pdfDoc = await PDFDocument.load(pdfBytes);
+    const pageCount = pdfDoc.getPageCount();
+    const outputPaths = [];
+    console.log(`[pdfToImage] PDF read (${pdfBytes.length} bytes), page count: ${pageCount}`);
 
     // Using unpkg CDN with a specific version known to work
     const pdfJsUrl = "https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js";
     const pdfWorkerUrl =
       "https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
 
-    const pdfDoc = await PDFDocument.load(pdfBytes);
-    const pageCount = pdfDoc.getPageCount();
-    const outputPaths = [];
-
     // Navigate to blank page once
     await page.goto("about:blank");
+    console.log(`[pdfToImage] Page content setting...`);
 
     // Inject PDF.js and setup environment
     await page.setContent(`
@@ -298,9 +337,11 @@ async function pdfToImage(filePath) {
     `);
 
     // Wait for pdfjsLib to be available
+    console.log(`[pdfToImage] Waiting for pdfjsLib...`);
     await page.waitForFunction(() => window.pdfjsLib !== undefined, {
       timeout: 30000,
     });
+    console.log(`[pdfToImage] pdfjsLib ready!`);
 
     // Initialize PDF once in the browser
     const initResult = await page.evaluate(async (data) => {
