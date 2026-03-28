@@ -58,27 +58,37 @@ exports.pptToPdf = async (req, res) => {
 
         const safePath = resolveFilePath(file.path);
         const data = await fs.readFile(safePath);
-        const zip = new JSZip();
-        const content = await zip.loadAsync(data);
 
-        let extractedText = "Presentation Text Extraction (Fallback Mode)\n\n";
+        let extractedText = "Presentation Text Extraction\n\n";
 
-        const slideKeys = Object.keys(content.files).filter(k => k.startsWith("ppt/slides/slide") && k.endsWith(".xml"));
-        for (const key of slideKeys) {
-            const slideXml = await content.file(key).async("string");
-            const matches = slideXml.match(/<a:t>([^<]*)<\/a:t>/g);
-            if (matches) {
-                const text = matches.map(m => m.replace(/<\/?a:t>/g, "")).join(" ");
-                extractedText += "- " + text + "\n";
+        try {
+            const zip = new JSZip();
+            const content = await zip.loadAsync(data);
+            const slideKeys = Object.keys(content.files).filter(k => k.startsWith("ppt/slides/slide") && k.endsWith(".xml"));
+
+            if (slideKeys.length === 0) {
+                extractedText += "[No text slides found or unsupported PPTX structure]\n";
             }
+
+            for (const key of slideKeys) {
+                const slideXml = await content.file(key).async("string");
+                const matches = slideXml.match(/<a:t>([^<]*)<\/a:t>/g);
+                if (matches) {
+                    const text = matches.map(m => m.replace(/<\/?a:t>/g, "")).join(" ");
+                    extractedText += "- " + text + "\n";
+                }
+            }
+        } catch (zipError) {
+            console.error("JSZip PPTX extraction failed (likely older .ppt format):", zipError.message);
+            extractedText += "[Error: Could not extract text locally. This is likely an older .ppt binary format instead of a standard .pptx zippable format, or the presentation doesn't contain standard text layers.]\n";
         }
 
         const outputPath = path.join(__dirname, "../outputs", `converted-${Date.now()}.pdf`);
         const doc = new PDFDocument({ margin: 40 });
         const stream = fs.createWriteStream(outputPath);
         doc.pipe(stream);
-        doc.fontSize(14).text("Converted PowerPoint (Text Only)", { align: "center" }).moveDown(2);
-        doc.fontSize(10).text(extractedText || "No text found in presentation slides.", { align: "left" });
+        doc.fontSize(14).text("Converted PowerPoint (Text Layers)", { align: "center" }).moveDown(2);
+        doc.fontSize(10).text(extractedText, { align: "left" });
         doc.end();
 
         await new Promise((resolve) => stream.on("finish", resolve));
@@ -264,7 +274,24 @@ exports.videoToPdf = async (req, res) => {
         const file = await File.findById(fileId);
         if (!file) return res.status(404).json({ error: "File not found" });
 
-        const notes = `Video Transcription & Notes\n\nVideo Source: ${file.originalName}\n\n[System Note: Full offline audio transcription disabled. Please use the Web UI client-side transcriber for full text capture.]\n\n- File length and frame data parsed successfully.\n- Media verified.`;
+        const safePath = resolveFilePath(file.path);
+        let extractedText = "";
+
+        try {
+            const whisper = require("whisper-node");
+            const transcriptArray = await whisper(safePath);
+
+            if (Array.isArray(transcriptArray)) {
+                extractedText = "- " + transcriptArray.map(t => t.speech).join("\n- ");
+            } else {
+                extractedText = String(transcriptArray);
+            }
+        } catch (e) {
+            console.error("Whisper offline video transcription error:", e);
+            extractedText = `[Video Transcription Failed]\nError tracking: ${e.message}\nFFmpeg is required natively on Windows to extract audio from video for pure local processing.`;
+        }
+
+        const notes = `Video Transcription & Notes\n\nVideo Source: ${file.originalName}\nStatus: Transcribed Locally (No API Keys Used!)\n\n\nMeeting Notes Extraction:\n\n${extractedText || "No voices detected in video."}`;
 
         const outputPath = path.join(__dirname, "../outputs", `notes-${Date.now()}.pdf`);
         const doc = new PDFDocument({ margin: 50 });
@@ -291,7 +318,26 @@ exports.audioToPdf = async (req, res) => {
         const file = await File.findById(fileId);
         if (!file) return res.status(404).json({ error: "File not found" });
 
-        const notes = `Audio Transcription Details\n\nAudio Source: ${file.originalName}\n\n[System Note: Full offline audio transcription disabled. Please use the Web UI client-side transcriber for full text capture.]\n\n- Audio track formatted successfully.\n- Media verified.`;
+        const safePath = resolveFilePath(file.path);
+        let extractedText = "";
+
+        try {
+            const whisper = require("whisper-node");
+            // Run completely offline AI (No API keys needed!). 
+            // whisper-node will auto-download the tiny model on first run if missing.
+            const transcriptArray = await whisper(safePath);
+
+            if (Array.isArray(transcriptArray)) {
+                extractedText = transcriptArray.map(t => t.speech).join(" ");
+            } else {
+                extractedText = String(transcriptArray); // fallback if it returns a string
+            }
+        } catch (e) {
+            console.error("Whisper offline transcription error:", e);
+            extractedText = `[Offline Transcription Failed]\nError tracking: ${e.message}\nMake sure FFmpeg is installed on your Windows machine if you are uploading MP3/MP4, because local offline processing requires FFmpeg to extract WAV channels for the engine.`;
+        }
+
+        const notes = `Offline Local Audio Transcription\n\nAudio Source: ${file.originalName}\nStatus: Transcribed Locally (No API Keys Used!)\n\n\nTranscript:\n${extractedText || "No voices detected."}`;
 
         const outputPath = path.join(__dirname, "../outputs", `transcript-${Date.now()}.pdf`);
         const doc = new PDFDocument({ margin: 50 });
