@@ -70,6 +70,7 @@ app.use("/api", conversionRoutes);
 app.use("/api/auth", require("./routes/authRoutes"));
 app.use("/api/resumes", require("./routes/resumeRoutes"));
 app.use("/api/charts", chartRoutes);
+app.use("/api/support", require("./routes/supportRoutes"));
 
 // Health Check Route
 app.get("/health", (req, res) => {

@@ -21,11 +21,32 @@ const userSchema = new mongoose.Schema({
         minlength: 6,
         select: false
     },
+    resetPasswordToken: String,
+    resetPasswordExpire: Date,
     createdAt: {
         type: Date,
         default: Date.now
     }
 });
+
+const crypto = require('crypto');
+
+// Generate and hash password token
+userSchema.methods.getResetPasswordToken = function () {
+    // Generate token
+    const resetToken = crypto.randomBytes(20).toString('hex');
+
+    // Hash token and set to resetPasswordToken field
+    this.resetPasswordToken = crypto
+        .createHash('sha256')
+        .update(resetToken)
+        .digest('hex');
+
+    // Set expire
+    this.resetPasswordExpire = Date.now() + 10 * 60 * 1000;
+
+    return resetToken;
+};
 
 // Encrypt password using bcrypt
 userSchema.pre('save', async function (next) {
