@@ -25,6 +25,8 @@ async function createFileRecord(req, originalName, outputPath, mimeType, operati
     });
 }
 
+const { getBrowser } = require("../utils/browserUtils");
+
 exports.wordToPdf = async (req, res) => {
     try {
         const { fileId } = req.body;
@@ -32,18 +34,155 @@ exports.wordToPdf = async (req, res) => {
         if (!file) return res.status(404).json({ error: "File not found" });
 
         const safePath = resolveFilePath(file.path);
-        const { value: html } = await mammoth.convertToHtml({ path: safePath });
+        let finalHtml = "";
+        let extractedImages = [];
 
-        const browser = await puppeteer.launch({ headless: "new", args: ["--no-sandbox", "--disable-setuid-sandbox"] });
+        try {
+            // Priority 1: Mammoth (The expert engine for .docx formatting/tables)
+            const { value: parsedHtml } = await mammoth.convertToHtml({ path: safePath });
+            if (parsedHtml && parsedHtml.length > 50) {
+                finalHtml = parsedHtml;
+            } else {
+                throw new Error("Mammoth result too small");
+            }
+        } catch (mammothErr) {
+            console.warn("Mammoth failed or legacy .doc detected. Launching Advanced Offline Scraper...");
+            const data = await fs.readFile(safePath);
+
+            // Aggressive String Processing (Same as PPT/Legacy logic)
+            let rawText = "";
+            try {
+                const officeParser = require('officeparser');
+                rawText = await officeParser.parseOfficeAsync(safePath);
+            } catch (offErr) {
+                // Byte-level recovery if officeparser fails
+                let utf16Str = "";
+                for (let i = 0; i < data.length - 1; i++) {
+                    if (data[i] >= 32 && data[i] <= 126 && data[i + 1] === 0) {
+                        utf16Str += String.fromCharCode(data[i]);
+                        i++;
+                    } else if (!utf16Str.endsWith("\n")) utf16Str += "\n";
+                }
+                rawText = utf16Str;
+            }
+
+            const junkLabels = [
+                "Root Entry", "CompObj", "Current User", "PowerPoint Document", "SummaryInformation", "DocumentSummaryInformation",
+                "Times New Roman", "Arial", "Calibri", "Courier New", "Cambria", "Droid Sans", "WenQuanYi", "DejaVu", "Segoe", "Microsoft",
+                "schemas.openxmlformats", "xml", "PowerPoint", "style.visibility", "visible", "Click to edit", "Outline Level", "Master Slide",
+                "Heading 1", "Heading 2", "Heading 3", "Internet Link", "Visited Internet Link", "Text Body", "Caption", "Normal", "Table Contents",
+                "Bullets", "Heading", "Index", "Quotations", "Title", "Subtitle", "Symbol", "Liberation Serif", "Open Sans", "FreeSans", "OpenSymbol", "Liberation Sans"
+            ];
+
+            const cleanLines = rawText.split("\n")
+                .map(l => l.trim())
+                .filter(l => {
+                    const isJunk = junkLabels.some(j => l.includes(j));
+                    // Stricter filtering for single-word layout headers
+                    const isLayoutHeader = (l.length < 15 && junkLabels.some(j => l === j));
+                    const isShort = l.length < 5;
+                    const isCode = l.includes(";") || l.includes("{") || l.includes(":") || l.includes("==") || l.includes("/>");
+                    const hasWords = /[a-zA-Z]{4,}/.test(l);
+                    return !isJunk && !isShort && !isCode && hasWords && !isLayoutHeader;
+                })
+                .filter((l, i, self) => self.indexOf(l) === i); // Deduplicate
+
+            finalHtml = cleanLines.map(line => `<p style="margin-bottom: 12px; line-height: 1.6; color: #333;">${line}</p>`).join("");
+
+            // ===================================
+            // THE IMAGE SCRAPER (Legacy .doc)
+            // ===================================
+            let i = 0;
+            while (i < data.length - 2) {
+                if (data[i] === 0xFF && data[i + 1] === 0xD8 && data[i + 2] === 0xFF) { // JPEG
+                    const s = i; let e = -1;
+                    for (let j = s; j < data.length - 1; j++) { if (data[j] === 0xFF && data[j + 1] === 0xD9) { e = j + 2; break; } }
+                    if (e !== -1) {
+                        const buf = data.subarray(s, e);
+                        if (buf.length > 8000) extractedImages.push(buf);
+                        i = e; continue;
+                    }
+                } else if (data[i] === 0x89 && data[i + 1] === 0x50 && data[i + 2] === 0x4E && data[i + 3] === 0x47) { // PNG
+                    const s = i; let e = -1;
+                    for (let j = s; j < data.length - 7; j++) { if (data[j] === 0x49 && data[j + 1] === 0x45 && data[j + 2] === 0x4E && data[j + 3] === 0x44) { e = j + 8; break; } }
+                    if (e !== -1) {
+                        const buf = data.subarray(s, e);
+                        if (buf.length > 8000) extractedImages.push(buf);
+                        i = e; continue;
+                    }
+                }
+                i++;
+            }
+        }
+
+        // Add extracted images to the HTML if we found any in legacy mode
+        if (extractedImages.length > 0) {
+            finalHtml += "<div style='page-break-before: always; text-align: center;'>";
+            finalHtml += "<h2 style='text-align: center; color: #444; margin-top: 40px;'>Recovered Document Visuals</h2>";
+            for (const img of extractedImages) {
+                try {
+                    // EXPERT FIX: Use sharp to normalize the raw byte rip into a standard, browser-friendly JPEG.
+                    // This fixes the "Black Box" issue by ensuring the binary stream is a valid image buffer.
+                    const sharp = require('sharp');
+                    const normalizedBuffer = await sharp(img).jpeg({ quality: 90 }).toBuffer();
+                    const base64 = normalizedBuffer.toString('base64');
+                    finalHtml += `<img src="data:image/jpeg;base64,${base64}" style="max-width: 90%; margin: 20px auto; border: 1px solid #ddd; display: block; box-shadow: 0 4px 8px rgba(0,0,0,0.1); border-radius: 12px;" />`;
+                } catch (imgErr) {
+                    console.warn("Skipping malformed image strip during Word recovery:", imgErr.message);
+                }
+            }
+            finalHtml += "</div>";
+        }
+
+        const browser = await getBrowser();
         const page = await browser.newPage();
-        await page.setContent(`<html><head><style>body{font-family: sans-serif; padding: 20px;}</style></head><body>${html}</body></html>`);
+
+        // Premium CSS Layout for the PDF
+        await page.setContent(`
+            <html>
+            <head>
+                <style>
+                    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap');
+                    body { font-family: 'Outfit', sans-serif; color: #1a1a1a; padding: 40px; background: #fff; }
+                    h1 { color: #2d3436; text-align: center; font-weight: 600; border-bottom: 2px solid #eee; padding-bottom: 20px; }
+                    p { font-size: 15px; margin: 10px 0; }
+                    table { width: 100%; border-collapse: collapse; margin: 20px 0; border: 1px solid #e1e1e1; }
+                    th, td { border: 1px solid #e1e1e1; padding: 12px; text-align: left; }
+                    th { background-color: #f9f9f9; font-weight: 600; }
+                    img { border-radius: 8px; display: block; margin: 0 auto; }
+                </style>
+            </head>
+            <body>
+                <h1>Document Processed Successfully</h1>
+                <div id="content">${finalHtml}</div>
+            </body>
+            </html>
+        `);
+
+        // CRITICAL FIX: Explicitly wait for ALL images to finish their internal base64 rendering 
+        // before triggering the PDF printer. This prevents blank pages for images.
+        await page.evaluate(async () => {
+            const selectors = Array.from(document.querySelectorAll('img'));
+            await Promise.all(selectors.map(img => {
+                if (img.complete) return;
+                return new Promise((resolve, reject) => {
+                    img.onload = resolve;
+                    img.onerror = resolve;
+                });
+            }));
+        });
 
         const outputPath = path.join(__dirname, "../outputs", `converted-${Date.now()}.pdf`);
-        await page.pdf({ path: outputPath, format: "A4", margin: { top: '20px', bottom: '20px', left: '20px', right: '20px' } });
+        await page.pdf({
+            path: outputPath,
+            format: "A4",
+            printBackground: true,
+            margin: { top: '30px', bottom: '30px', left: '30px', right: '30px' }
+        });
         await browser.close();
 
         const pdfFile = await createFileRecord(req, file.originalName.replace(".docx", ".pdf").replace(".doc", ".pdf"), outputPath, "application/pdf", "convert-word-to-pdf");
-        res.json({ success: true, message: "Word converted to PDF", file: pdfFile });
+        res.json({ success: true, message: "Word converted to PDF professionally with visuals", file: pdfFile });
     } catch (error) {
         console.error("Word to PDF error:", error);
         res.status(500).json({ error: "Conversion failed", details: error.message });
@@ -59,42 +198,179 @@ exports.pptToPdf = async (req, res) => {
         const safePath = resolveFilePath(file.path);
         const data = await fs.readFile(safePath);
 
-        let extractedText = "Presentation Text Extraction\n\n";
+        let extractedText = "";
+        const extractedImages = [];
 
         try {
-            const zip = new JSZip();
-            const content = await zip.loadAsync(data);
-            const slideKeys = Object.keys(content.files).filter(k => k.startsWith("ppt/slides/slide") && k.endsWith(".xml"));
+            const officeParser = require('officeparser');
+            let parsedText = await officeParser.parseOfficeAsync(safePath);
+            if (parsedText) {
+                // Aggressive blacklist for technical metadata, font names, and CSS properties
+                const junkPatterns = [
+                    "Root Entry", "CompObj", "Current User", "PowerPoint Document", "SummaryInformation", "DocumentSummaryInformation",
+                    "Times New Roman", "Arial", "Calibri", "Courier New", "Cambria", "Droid Sans", "WenQuanYi", "DejaVu", "Segoe", "Microsoft",
+                    "schemas.openxmlformats", "xml", "PowerPoint", "style.visibility", "visible", "Click to edit", "Outline Level", "Master Slide"
+                ];
 
-            if (slideKeys.length === 0) {
-                extractedText += "[No text slides found or unsupported PPTX structure]\n";
+                extractedText = parsedText.split("\n")
+                    .map(line => line.trim())
+                    .filter(line => {
+                        const low = line.toLowerCase();
+                        // Filter out technical strings, font names, and tiny junk
+                        const isJunk = junkPatterns.some(p => line.includes(p));
+                        const isNumericJunk = /^[\d\s\W]+$/.test(line); // Just numbers and symbols
+                        const isVeryShort = line.length < 3;
+                        const isCodeLike = line.includes(";") || line.includes("{") || line.includes(":");
+                        return !isJunk && !isNumericJunk && !isVeryShort && !isCodeLike;
+                    })
+                    .join("\n\n");
+            } else {
+                throw new Error("OfficeParser failed");
             }
-
-            for (const key of slideKeys) {
-                const slideXml = await content.file(key).async("string");
-                const matches = slideXml.match(/<a:t>([^<]*)<\/a:t>/g);
-                if (matches) {
-                    const text = matches.map(m => m.replace(/<\/?a:t>/g, "")).join(" ");
-                    extractedText += "- " + text + "\n";
+        } catch (parserError) {
+            // Custom UTF-16LE String Extractor (No extra metadata/ASCII noise)
+            let utf16String = "";
+            for (let i = 0; i < data.length - 1; i++) {
+                if (data[i] >= 32 && data[i] <= 126 && data[i + 1] === 0) {
+                    utf16String += String.fromCharCode(data[i]);
+                    i++;
+                } else {
+                    if (!utf16String.endsWith("\n")) utf16String += "\n";
                 }
             }
-        } catch (zipError) {
-            console.error("JSZip PPTX extraction failed (likely older .ppt format):", zipError.message);
-            extractedText += "[Error: Could not extract text locally. This is likely an older .ppt binary format instead of a standard .pptx zippable format, or the presentation doesn't contain standard text layers.]\n";
+
+            const junkPatterns = [
+                "Root Entry", "CompObj", "Current User", "PowerPoint Document", "SummaryInformation", "DocumentSummaryInformation",
+                "Times New Roman", "Arial", "Calibri", "Courier New", "Cambria", "Droid Sans", "WenQuanYi", "DejaVu", "Segoe", "Microsoft",
+                "schemas.openxmlformats", "xml", "PowerPoint", "style.visibility", "visible", "Click to edit", "Outline Level", "Master Slide"
+            ];
+
+            extractedText = utf16String.split("\n")
+                .map(line => line.trim())
+                .filter(line => {
+                    const low = line.toLowerCase();
+                    const isJunk = junkPatterns.some(p => line.includes(p));
+                    const isNumericJunk = /^[\d\s\W]+$/.test(line);
+                    const isVeryShort = line.length < 4;
+                    const isCodeLike = line.includes(";") || line.includes("{") || line.includes(":");
+                    // Require at least 4 letters to be considered actual word content
+                    const hasWords = /[a-zA-Z]{4,}/.test(line);
+                    return !isJunk && !isNumericJunk && !isVeryShort && !isCodeLike && hasWords;
+                })
+                .join("\n\n");
         }
 
+        // =========================================================================
+        // PURE JAVASCRIPT IMAGE SCRAPER (Extracts embedded graphics from any binary)
+        // =========================================================================
+        let i = 0;
+        while (i < data.length - 2) {
+            // Find JPEG Start of Image (FF D8 FF)
+            if (data[i] === 0xFF && data[i + 1] === 0xD8 && data[i + 2] === 0xFF) {
+                const startIdx = i;
+                let endIdx = -1;
+                // Search for JPEG End of Image (FF D9)
+                for (let j = startIdx; j < data.length - 1; j++) {
+                    if (data[j] === 0xFF && data[j + 1] === 0xD9) {
+                        endIdx = j + 2;
+                        break;
+                    }
+                }
+                if (endIdx !== -1) {
+                    const imgBuffer = data.subarray(startIdx, endIdx);
+                    // Only accept images reasonably sized (prevent tiny thumbnail noise > 5KB)
+                    if (imgBuffer.length > 5000) extractedImages.push(imgBuffer);
+                    i = endIdx;
+                    continue;
+                }
+            }
+            // Find PNG Magic Number (89 50 4E 47 0D 0A 1A 0A)
+            else if (data[i] === 0x89 && data[i + 1] === 0x50 && data[i + 2] === 0x4E && data[i + 3] === 0x47) {
+                const startIdx = i;
+                let endIdx = -1;
+                // Search for PNG EOF (49 45 4E 44 AE 42 60 82 -> IEND chunk)
+                for (let j = startIdx; j < data.length - 7; j++) {
+                    if (data[j] === 0x49 && data[j + 1] === 0x45 && data[j + 2] === 0x4E && data[j + 3] === 0x44) {
+                        endIdx = j + 8; // Include IEND and CRC
+                        break;
+                    }
+                }
+                if (endIdx !== -1) {
+                    const imgBuffer = data.subarray(startIdx, endIdx);
+                    if (imgBuffer.length > 5000) extractedImages.push(imgBuffer);
+                    i = endIdx;
+                    continue;
+                }
+            }
+            i++;
+        }
+
+        // Build Final Document Visually!
         const outputPath = path.join(__dirname, "../outputs", `converted-${Date.now()}.pdf`);
-        const doc = new PDFDocument({ margin: 40 });
+        const doc = new PDFDocument({
+            margin: 50,
+            info: { Title: "Converted Presentation", Author: "Offline PDF Converter" }
+        });
         const stream = fs.createWriteStream(outputPath);
         doc.pipe(stream);
-        doc.fontSize(14).text("Converted PowerPoint (Text Layers)", { align: "center" }).moveDown(2);
-        doc.fontSize(10).text(extractedText, { align: "left" });
+
+        // Render Clean Core Text Layout (Removing "Slide Click" placeholders and short labels)
+        const finalCleanText = extractedText.split("\n\n")
+            .filter(para => {
+                const p = para.trim();
+                if (!p) return false;
+                // Exclude common slide placeholders and layout labels
+                const labels = ["Chart", "Table", "Column 1", "Column 2", "Column 3", "Column 4", "Column 5", "Photo", "Picture", "Pictures", "Slide"];
+                const isPlaceholder = p.includes("Click to edit") || p.includes("Outline Level");
+                const isShortLabel = labels.some(l => p === l || p.startsWith(l + " "));
+                return !isPlaceholder && !isShortLabel && p.length > 5;
+            })
+            // Remove exact duplicate blocks often found in PPT binaries
+            .filter((para, index, self) => self.indexOf(para) === index)
+            .join("\n\n");
+
+        doc.fontSize(20).font("Helvetica-Bold").text("Presentation Contents", { align: "center" }).moveDown(1.5);
+
+        if (!finalCleanText.trim()) {
+            doc.fontSize(12).font("Helvetica").text("No standard speaker text found on slides.", { align: "center" });
+        } else {
+            doc.fontSize(11).font("Helvetica").fillColor('#333333').text(finalCleanText.substring(0, 15000), {
+                align: "left",
+                lineGap: 4
+            });
+        }
+
+        // Natively Render Extracted Presentation Images!
+        if (extractedImages.length > 0) {
+            doc.addPage();
+            doc.fontSize(18).font("Helvetica-Bold").text("Extracted Visual Slides", { align: "center" }).moveDown(2);
+
+            for (const imgBuffer of extractedImages) {
+                // Approximate a "Slide" Look with a border
+                const currentY = doc.y;
+                if (currentY > 500) doc.addPage(); // Avoid splitting image across pages
+
+                try {
+                    doc.image(imgBuffer, {
+                        fit: [500, 350],
+                        align: 'center',
+                        valign: 'center'
+                    });
+                    doc.moveDown(2);
+                    // Light separator line
+                    doc.moveTo(50, doc.y).lineTo(550, doc.y).strokeColor("#eeeeee").stroke().moveDown(1);
+                } catch (imgErr) {
+                    // Skip malformed byte strips
+                }
+            }
+        }
+
         doc.end();
 
         await new Promise((resolve) => stream.on("finish", resolve));
 
         const pdfFile = await createFileRecord(req, file.originalName.replace(".pptx", ".pdf").replace(".ppt", ".pdf"), outputPath, "application/pdf", "convert-ppt-to-pdf");
-        res.json({ success: true, message: "PPT converted to PDF", file: pdfFile });
+        res.json({ success: true, message: "PPT converted to PDF completely offline mapping images", file: pdfFile });
     } catch (error) {
         console.error("PPT to PDF error:", error);
         res.status(500).json({ error: "Conversion failed", details: error.message });
@@ -178,11 +454,42 @@ exports.csvToPdf = async (req, res) => {
         const safePath = resolveFilePath(file.path);
         const text = await fs.readFile(safePath, 'utf8');
         const rows = text.split('\n').filter(r => r.trim());
+        if (rows.length === 0) throw new Error("Empty CSV or invalid formatting");
 
-        let html = "<html><head><style>body { font-family: sans-serif; font-size: 10px; } table { border-collapse: collapse; width: 100%; } th, td { border: 1px solid #ddd; padding: 4px; } th { background-color: #f2f2f2; }</style></head><body><table>";
+        // SMART DETECTION: Count columns to decide on Landscape vs Portrait
+        const colCount = rows[0].split(',').length;
+        const useLandscape = colCount > 6;
+        const fontSize = colCount > 12 ? '7px' : (colCount > 8 ? '9px' : '11px');
+
+        let html = `
+        <html>
+        <head>
+            <style>
+                @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
+                body { font-family: 'Inter', sans-serif; font-size: ${fontSize}; margin: 0; padding: 20px; color: #333; }
+                table { border-collapse: collapse; width: 100%; table-layout: fixed; border: 1px solid #e0e0e0; }
+                th, td { 
+                    border: 1px solid #e0e0e0; 
+                    padding: 6px 4px; 
+                    text-align: left; 
+                    word-wrap: break-word; 
+                    overflow-wrap: break-word; 
+                    vertical-align: top;
+                }
+                th { background-color: #f8f9fa; font-weight: 600; color: #1a1a1a; text-transform: uppercase; letter-spacing: 0.02em; }
+                tr:nth-child(even) { background-color: #fcfcfc; }
+                h2 { text-align: center; color: #2d3436; margin-bottom: 20px; }
+            </style>
+        </head>
+        <body>
+            <h2>Data Export: ${file.originalName}</h2>
+            <table>`;
+
         rows.forEach((row, i) => {
             html += "<tr>";
-            row.split(',').forEach(cell => {
+            // Handle comma split correctly with basic quote support
+            const cells = row.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g) || row.split(',');
+            cells.forEach(cell => {
                 const cellText = cell.replace(/^"/, '').replace(/"$/, '').trim();
                 if (i === 0) html += `<th>${cellText}</th>`;
                 else html += `<td>${cellText}</td>`;
@@ -191,17 +498,23 @@ exports.csvToPdf = async (req, res) => {
         });
         html += "</table></body></html>";
 
-        const browser = await puppeteer.launch({ headless: "new", args: ["--no-sandbox", "--disable-setuid-sandbox"] });
+        const browser = await getBrowser();
         const page = await browser.newPage();
         await page.setContent(html);
 
         const outputPath = path.join(__dirname, "../outputs", `converted-${Date.now()}.pdf`);
-        await page.pdf({ path: outputPath, format: "A4", margin: { top: '10px', bottom: '10px' } });
+        await page.pdf({
+            path: outputPath,
+            format: "A4",
+            landscape: useLandscape,
+            printBackground: true,
+            margin: { top: '20px', bottom: '20px', left: '20px', right: '20px' }
+        });
         await browser.close();
 
-        const originalBase = path.parse(file.originalName).name;
+        const originalBase = path.getBasename ? path.getBasename(file.originalName) : path.parse(file.originalName).name;
         const pdfFile = await createFileRecord(req, `${originalBase}.pdf`, outputPath, "application/pdf", "convert-csv-to-pdf");
-        res.json({ success: true, message: "CSV converted to PDF", file: pdfFile });
+        res.json({ success: true, message: "Large CSV converted to PDF layout professionally", file: pdfFile });
     } catch (error) {
         console.error("CSV to PDF error:", error);
         res.status(500).json({ error: "Conversion failed", details: error.message });
@@ -304,29 +617,61 @@ exports.videoToPdf = async (req, res) => {
         if (!file) return res.status(404).json({ error: "File not found" });
 
         const safePath = resolveFilePath(file.path);
+
         let extractedText = "";
-
         try {
-            const whisper = require("whisper-node");
-            const transcriptArray = await whisper(safePath);
+            console.log("Loading offline AI Transcriber...");
 
-            if (Array.isArray(transcriptArray)) {
-                extractedText = "- " + transcriptArray.map(t => t.speech).join("\n- ");
-            } else {
-                extractedText = String(transcriptArray);
-            }
-        } catch (e) {
-            console.error("Whisper offline video transcription error:", e);
-            extractedText = `[Video Transcription Failed]\nError tracking: ${e.message}\nFFmpeg is required natively on Windows to extract audio from video for pure local processing.`;
+            // Require static FFMPEG executable & Fluent wrapper dynamically
+            const ffmpeg = require('fluent-ffmpeg');
+            const ffmpegPath = require('ffmpeg-static');
+            ffmpeg.setFfmpegPath(ffmpegPath);
+
+            // Generate clean 16kHz WAV buffer locally
+            const tempWavPath = path.join(__dirname, "../outputs", `temp-${Date.now()}.wav`);
+            await new Promise((resolve, reject) => {
+                ffmpeg(safePath)
+                    .noVideo()
+                    .format('wav')
+                    .audioFrequency(16000)
+                    .audioChannels(1)
+                    .on('end', resolve)
+                    .on('error', reject)
+                    .save(tempWavPath);
+            });
+
+            const { WaveFile } = require('wavefile');
+            const buffer = await fs.readFile(tempWavPath);
+            const wav = new WaveFile(buffer);
+            wav.toBitDepth('32f');
+            let audioData = wav.getSamples();
+            if (Array.isArray(audioData)) audioData = audioData[0]; // mono fallback
+
+            // Fire up the completely local offline AI Transformer! (No Paid Keys!)
+            const { pipeline } = await import('@xenova/transformers'); // Dynamic import for ESM modules safely
+            console.log("Downloading/Loading localized Xenova ONNX model (~50MB)...");
+            const transcriber = await pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny.en', {
+                quantized: true, // heavily optimized WASM
+            });
+
+            const output = await transcriber(audioData);
+            extractedText = output.text;
+
+            fs.unlink(tempWavPath).catch(() => { }); // Cleanup Temp Wav
+
+            if (!extractedText.trim()) extractedText = "[Video contained no easily detectable speech.]";
+        } catch (mlErr) {
+            console.error("Local ML Offline Inference Error:", mlErr);
+            extractedText += `\n[System Error: The offline local JS AI engine could not boot correctly. Details: ${mlErr.message}]\n`;
         }
 
-        const notes = `Video Transcription & Notes\n\nVideo Source: ${file.originalName}\nStatus: Transcribed Locally (No API Keys Used!)\n\n\nMeeting Notes Extraction:\n\n${extractedText || "No voices detected in video."}`;
+        const notes = `Offline Video Transcription\n\nVideo Source: ${file.originalName}\nStatus: Processed Locally (Zero Paid API Keys Used)\n\n\nAI Speech Extraction:\n\n${extractedText}`;
 
         const outputPath = path.join(__dirname, "../outputs", `notes-${Date.now()}.pdf`);
         const doc = new PDFDocument({ margin: 50 });
         const stream = fs.createWriteStream(outputPath);
         doc.pipe(stream);
-        doc.fontSize(18).text(`Video Notes: ${file.originalName}`).moveDown();
+        doc.fontSize(18).text(`Video AI Transcript: ${path.basename(file.originalName)}`).moveDown();
         doc.fontSize(12).text(notes);
         doc.end();
 
@@ -334,7 +679,7 @@ exports.videoToPdf = async (req, res) => {
 
         const originalBase = path.parse(file.originalName).name;
         const pdfFile = await createFileRecord(req, `${originalBase}_notes.pdf`, outputPath, "application/pdf", "convert-video-to-pdf");
-        res.json({ success: true, message: "Video notes generated to PDF", file: pdfFile });
+        res.json({ success: true, message: "Video notes generated to PDF securely (Offline AI)", file: pdfFile });
     } catch (error) {
         console.error("Video to PDF error:", error);
         res.status(500).json({ error: "Conversion failed", details: error.message });
@@ -348,31 +693,61 @@ exports.audioToPdf = async (req, res) => {
         if (!file) return res.status(404).json({ error: "File not found" });
 
         const safePath = resolveFilePath(file.path);
+
         let extractedText = "";
-
         try {
-            const whisper = require("whisper-node");
-            // Run completely offline AI (No API keys needed!). 
-            // whisper-node will auto-download the tiny model on first run if missing.
-            const transcriptArray = await whisper(safePath);
+            console.log("Loading offline AI Audio Transcriber...");
 
-            if (Array.isArray(transcriptArray)) {
-                extractedText = transcriptArray.map(t => t.speech).join(" ");
-            } else {
-                extractedText = String(transcriptArray); // fallback if it returns a string
-            }
-        } catch (e) {
-            console.error("Whisper offline transcription error:", e);
-            extractedText = `[Offline Transcription Failed]\nError tracking: ${e.message}\nMake sure FFmpeg is installed on your Windows machine if you are uploading MP3/MP4, because local offline processing requires FFmpeg to extract WAV channels for the engine.`;
+            // Require static FFMPEG executable & Fluent wrapper dynamically
+            const ffmpeg = require('fluent-ffmpeg');
+            const ffmpegPath = require('ffmpeg-static');
+            ffmpeg.setFfmpegPath(ffmpegPath);
+
+            // Generate clean 16kHz WAV buffer locally
+            const tempWavPath = path.join(__dirname, "../outputs", `temp-${Date.now()}.wav`);
+            await new Promise((resolve, reject) => {
+                ffmpeg(safePath)
+                    .noVideo()
+                    .format('wav')
+                    .audioFrequency(16000)
+                    .audioChannels(1)
+                    .on('end', resolve)
+                    .on('error', reject)
+                    .save(tempWavPath);
+            });
+
+            const { WaveFile } = require('wavefile');
+            const buffer = await fs.readFile(tempWavPath);
+            const wav = new WaveFile(buffer);
+            wav.toBitDepth('32f');
+            let audioData = wav.getSamples();
+            if (Array.isArray(audioData)) audioData = audioData[0]; // mono fallback
+
+            // Fire up the completely local offline AI Transformer! (No Paid Keys!)
+            const { pipeline } = await import('@xenova/transformers'); // Dynamic import for ESM modules safely
+            console.log("Downloading/Loading localized Xenova ONNX model (~50MB)...");
+            const transcriber = await pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny.en', {
+                quantized: true, // heavily optimized WASM
+            });
+
+            const output = await transcriber(audioData);
+            extractedText = output.text;
+
+            fs.unlink(tempWavPath).catch(() => { }); // Cleanup Temp Wav
+
+            if (!extractedText.trim()) extractedText = "[Audio track contained no easily detectable speech.]";
+        } catch (mlErr) {
+            console.error("Local ML Offline Inference Error:", mlErr);
+            extractedText += `\n[System Error: The offline local JS AI engine could not boot correctly. Details: ${mlErr.message}]\n`;
         }
 
-        const notes = `Offline Local Audio Transcription\n\nAudio Source: ${file.originalName}\nStatus: Transcribed Locally (No API Keys Used!)\n\n\nTranscript:\n${extractedText || "No voices detected."}`;
+        const notes = `Offline Audio Transcription Report\n\nAudio Source: ${file.originalName}\nStatus: Transcribed Locally (Zero Paid API Keys Used)\n\n\nAI Transcript Output:\n\n${extractedText}`;
 
         const outputPath = path.join(__dirname, "../outputs", `transcript-${Date.now()}.pdf`);
         const doc = new PDFDocument({ margin: 50 });
         const stream = fs.createWriteStream(outputPath);
         doc.pipe(stream);
-        doc.fontSize(18).text(`Audio Transcript: ${file.originalName}`).moveDown();
+        doc.fontSize(16).text(`Offline Audio Processing (${path.extname(file.originalName)})`).moveDown();
         doc.fontSize(12).text(notes);
         doc.end();
 
@@ -380,7 +755,7 @@ exports.audioToPdf = async (req, res) => {
 
         const originalBase = path.parse(file.originalName).name;
         const pdfFile = await createFileRecord(req, `${originalBase}_transcript.pdf`, outputPath, "application/pdf", "convert-audio-to-pdf");
-        res.json({ success: true, message: "Audio transcript generated to PDF", file: pdfFile });
+        res.json({ success: true, message: "Audio processed securely (Offline AI)", file: pdfFile });
     } catch (error) {
         console.error("Audio to PDF error:", error);
         res.status(500).json({ error: "Conversion failed", details: error.message });

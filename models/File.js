@@ -59,7 +59,8 @@ const fileSchema = new mongoose.Schema(
         "convert-pdf-to-csv",
         "convert-video-to-pdf",
         "convert-audio-to-pdf",
-        "convert-image"
+        "convert-image",
+        "convert-pdf-to-speech"
       ],
       default: "upload",
     },

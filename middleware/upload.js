@@ -118,28 +118,28 @@ const strictDocumentFilter = (req, file, cb) => {
 // Default upload (any file, no filter)
 const upload = multer({
   storage,
-  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB limit
+  limits: { fileSize: 1024 * 1024 * 1024 }, // 1GB limit
 });
 
 // PDF specific upload
 const pdfUpload = multer({
   storage,
   fileFilter: pdfFilter,
-  limits: { fileSize: 50 * 1024 * 1024 },
+  limits: { fileSize: 1024 * 1024 * 1024 }, // 1GB limit
 });
 
 // Image specific upload
 const imageUpload = multer({
   storage,
   fileFilter: imageFilter,
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { fileSize: 200 * 1024 * 1024 }, // 200MB limit for bulk image processing
 });
 
 // Document specific upload
 const documentUpload = multer({
   storage,
   fileFilter: strictDocumentFilter,
-  limits: { fileSize: 50 * 1024 * 1024 },
+  limits: { fileSize: 1024 * 1024 * 1024 }, // 1GB limit
 });
 
 module.exports = {

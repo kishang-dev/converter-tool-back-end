@@ -4,15 +4,43 @@ const path = require("path");
 const { Document, Packer, Paragraph, TextRun } = require("docx");
 const ExcelJS = require("exceljs");
 
-// Merge multiple PDFs
 async function mergePDFs(filePaths) {
   const mergedPdf = await PDFDocument.create();
 
   for (const filePath of filePaths) {
-    const pdfBytes = await fs.readFile(filePath);
-    const pdf = await PDFDocument.load(pdfBytes);
-    const copiedPages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
-    copiedPages.forEach((page) => mergedPdf.addPage(page));
+    const absolutePath = path.isAbsolute(filePath) ? filePath : path.join(__dirname, "..", filePath);
+    const fileBytes = await fs.readFile(absolutePath);
+
+    // Check if the buffer has a valid PDF signature
+    if (fileBytes.indexOf(Buffer.from('%PDF-')) === 0) {
+      try {
+        const pdf = await PDFDocument.load(fileBytes);
+        const copiedPages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
+        copiedPages.forEach((page) => mergedPdf.addPage(page));
+      } catch (e) {
+        throw new Error(`File ${path.basename(filePath)} is corrupted or encrypted: ${e.message}`);
+      }
+    } else {
+      // If it's not a PDF, attempt to automatically ingest it as a raw Image page
+      try {
+        let image;
+        // JPG magic numbers (FF D8)
+        if (fileBytes[0] === 0xFF && fileBytes[1] === 0xD8) {
+          image = await mergedPdf.embedJpg(fileBytes);
+        }
+        // PNG magic numbers (89 50)
+        else if (fileBytes[0] === 0x89 && fileBytes[1] === 0x50) {
+          image = await mergedPdf.embedPng(fileBytes);
+        } else {
+          throw new Error(`File does not have a %PDF header and does not match JPG/PNG formats.`);
+        }
+
+        const page = mergedPdf.addPage([image.width, image.height]);
+        page.drawImage(image, { x: 0, y: 0, width: image.width, height: image.height });
+      } catch (e) {
+        throw new Error(`Cannot merge non-PDF object ${path.basename(filePath)}: ` + e.message);
+      }
+    }
   }
 
   const mergedPdfBytes = await mergedPdf.save();
@@ -211,52 +239,10 @@ async function pdfToImage(filePath) {
     const puppeteer = require("puppeteer");
     console.log(`[pdfToImage] Launching Puppeteer...`);
 
-    let browser;
-    try {
-      browser = await puppeteer.launch({
-        headless: "new",
-        args: [
-          "--no-sandbox",
-          "--disable-setuid-sandbox",
-          "--disable-dev-shm-usage",
-          "--disable-accelerated-2d-canvas",
-        ],
-      });
-    } catch (launchError) {
-      console.warn(
-        `[pdfToImage] Default Puppeteer launch failed, trying system Chrome: ${launchError.message}`,
-      );
-      // Fallback for Windows common paths
-      const fallbackPaths = [
-        "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-        "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
-      ];
+    const { getBrowser } = require("./browserUtils");
+    console.log(`[pdfToImage] Launching Puppeteer fallback-safe...`);
 
-      let success = false;
-      for (const exePath of fallbackPaths) {
-        try {
-          if (await fs.pathExists(exePath)) {
-            console.log(
-              `[pdfToImage] Found Chrome at ${exePath}, trying to launch...`,
-            );
-            browser = await puppeteer.launch({
-              executablePath: exePath,
-              headless: "new",
-              args: ["--no-sandbox"],
-            });
-            success = true;
-            console.log(`[pdfToImage] Local Chrome launch SUCCESS!`);
-            break;
-          }
-        } catch (e) {
-          console.warn(
-            `[pdfToImage] Failed to launch Chrome at ${exePath}: ${e.message}`,
-          );
-        }
-      }
-
-      if (!success) throw launchError;
-    }
+    const browser = await getBrowser();
 
     const page = await browser.newPage();
     console.log(`[pdfToImage] Browser launched, loading page...`);
