@@ -48,19 +48,32 @@ const documentFilter = (req, file, cb) => {
     "application/vnd.ms-excel",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     "application/vnd.ms-powerpoint",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "text/html",
-    "text/plain"
+    "text/plain",
+    "text/csv",
+    "audio/mpeg",
+    "audio/wav",
+    "video/mp4",
+    "video/x-msvideo",
+    "image/jpeg",
+    "image/jpg",
+    "image/png",
+    "image/webp",
+    "image/svg+xml"
   ];
-  const allowedExts = ['.pdf', '.xlsx', '.xls', '.pptx', '.ppt', '.html', '.htm', '.txt'];
+  const allowedExts = [
+    '.pdf', '.xlsx', '.xls', '.pptx', '.ppt', '.doc', '.docx',
+    '.html', '.htm', '.txt', '.csv', '.mp3', '.wav', '.mp4',
+    '.avi', '.jpg', '.jpeg', '.png', '.webp', '.svg'
+  ];
   const ext = path.extname(file.originalname).toLowerCase();
 
   if (allowedMimes.includes(file.mimetype) || allowedExts.includes(ext)) {
     cb(null, true);
   } else {
-    cb(null, true); // Fallback: allow upload and fail in controller if needed, or stick to strict?
-    // Let's allow it for now to avoid "mime type mismatch" issues, or better yet, log it.
-    // Actually, stick to strict but add more mimes if needed. 
-    // The previous error was "Only PDF...", so let's try to be permissive for the "document" upload.
+    cb(null, true); // Fallback: allow upload and fail in controller if needed
   }
 };
 
@@ -72,10 +85,26 @@ const strictDocumentFilter = (req, file, cb) => {
     "application/vnd.ms-excel",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     "application/vnd.ms-powerpoint",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "text/html",
-    "text/plain"
+    "text/plain",
+    "text/csv",
+    "audio/mpeg",
+    "audio/wav",
+    "video/mp4",
+    "video/x-msvideo",
+    "image/jpeg",
+    "image/jpg",
+    "image/png",
+    "image/webp",
+    "image/svg+xml"
   ];
-  const allowedExts = ['.pdf', '.xlsx', '.xls', '.pptx', '.ppt', '.html', '.htm', '.txt'];
+  const allowedExts = [
+    '.pdf', '.xlsx', '.xls', '.pptx', '.ppt', '.doc', '.docx',
+    '.html', '.htm', '.txt', '.csv', '.mp3', '.wav', '.mp4',
+    '.avi', '.jpg', '.jpeg', '.png', '.webp', '.svg', '.webm', '.m4a'
+  ];
   const ext = path.extname(file.originalname).toLowerCase();
 
   if (allowedMimes.includes(file.mimetype) || allowedExts.includes(ext)) {
