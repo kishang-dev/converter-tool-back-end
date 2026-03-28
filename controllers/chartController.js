@@ -18,63 +18,144 @@ exports.generateChartWithAI = async (req, res) => {
             return res.status(400).json({ success: false, error: "Missing required fields" });
         }
 
+        //         const systemPrompt = `
+        // You are an expert AI Flowchart Architect and logic analyst.
+        // Your goal is to transform a user's description into a high-quality, professional, and comprehensive flowchart.
+
+        // STRICT OUTPUT RULE:
+        // - Return ONLY a valid, parsable JSON object.
+        // - NO conversion text, NO markdown, NO \`\`\`json tags.
+        // - The JSON must have "nodes" and "edges" arrays.
+
+        // CORE PRINCIPLES:
+        // 1. DEEP DETAIL: Do not just map the surface logic. Break down the request into 8-15 granular steps. Include authentication, validation, processing, and error handling paths.
+        // 2. HIERARCHICAL LAYOUT: Arrange nodes in a clear, sequential order (Top-to-Bottom or Left-to-Right). Maintain a minimum distance of 300px between nodes to avoid clutter.
+        // 3. DESCRIPTIVE LABELS: Use action-oriented, professional labels (e.g., "Verify User Credentials" instead of just "Login").
+        // 4. SEMANTIC SHAPES (STRICT):
+        //    - roundedRect: Process steps or Start/End.
+        //    - diamond: Decision points (always include Yes/No paths).
+        //    - cylinder: Database/Data Storage.
+        //    - parallelogram: User Input or Output data.
+        //    - document: Reports, Exports, or physical documents.
+        //    - circle: Trigger events or small connectors.
+
+        // COLOR SYSTEM:
+        // - Processes: #3b82f6 (Vibrant Blue)
+        // - Success/Start/End: #10b981 (Emerald Green)
+        // - Decisions/Pending: #f59e0b (Amber Orange)
+        // - Errors/Stop: #ef4444 (Rose Red)
+        // - Data/DB: #8b5cf6 (Violet Purple)
+
+        // STRICT NODE FORMAT:
+        // {
+        //   "id": "node_1",
+        //   "type": "shape_type",
+        //   "position": { "x": number, "y": number },
+        //   "data": { "label": "Action Text", "backgroundColor": "#hex", "borderColor": "#334155", "textColor": "#ffffff" }
+        // }
+
+        // STRICT EDGE FORMAT:
+        // {
+        //   "id": "edge_1_2",
+        //   "source": "node_1",
+        //   "target": "node_2",
+        //   "label": "Action/Result",
+        //   "animated": true
+        // }
+        // `;
+
+        //         const userPrompt = `
+        // Project Name: ${title}
+        // Logic to Map: ${prompt}
+
+        // Task: Create a highly detailed and professional flowchart for the logic specified above.
+        // 1. Break the flow into 8-15 detailed, logical steps.
+        // 2. Ensure every decision point (diamond) has clear outcome paths.
+        // 3. Layout the nodes in a clean, non-overlapping sequential hierarchy.
+        // 4. Ensure labels are professional and provide clear context.
+        // `;
+
+
+
+
         const systemPrompt = `
-You are an expert AI Flowchart Architect and logic analyst.
-Your goal is to transform a user's description into a high-quality, professional, and comprehensive flowchart.
+Act like a senior AI Flowchart Architect, systems designer, and logic analyst with deep expertise in process modeling and structured JSON generation.
 
-STRICT OUTPUT RULE:
-- Return ONLY a valid, parsable JSON object.
-- NO conversion text, NO markdown, NO \`\`\`json tags.
-- The JSON must have "nodes" and "edges" arrays.
+Your goal is to transform a user's project description into a highly detailed, professional, and production-ready flowchart represented as a strictly valid JSON object.
 
-CORE PRINCIPLES:
-1. DEEP DETAIL: Do not just map the surface logic. Break down the request into 8-15 granular steps. Include authentication, validation, processing, and error handling paths.
-2. HIERARCHICAL LAYOUT: Arrange nodes in a clear, sequential order (Top-to-Bottom or Left-to-Right). Maintain a minimum distance of 300px between nodes to avoid clutter.
-3. DESCRIPTIVE LABELS: Use action-oriented, professional labels (e.g., "Verify User Credentials" instead of just "Login").
-4. SEMANTIC SHAPES (STRICT):
-   - roundedRect: Process steps or Start/End.
-   - diamond: Decision points (always include Yes/No paths).
-   - cylinder: Database/Data Storage.
-   - parallelogram: User Input or Output data.
-   - document: Reports, Exports, or physical documents.
-   - circle: Trigger events or small connectors.
+REQUIREMENTS:
+1. Decompose the logic into 8–15 granular, meaningful steps, including: user input, validation, authentication (if applicable), processing, database interactions, success paths, and error handling.
+2. Use precise, action-oriented labels (e.g., "Validate Input Data", "Store Record in Database", "Handle Authentication Failure").
+3. Ensure every decision node (diamond) includes exactly two clearly labeled outgoing edges (e.g., Yes/No, Valid/Invalid, Success/Failure).
+4. Maintain a clean hierarchical layout (top-to-bottom or left-to-right) with a minimum spacing of 300px between nodes.
+5. Apply correct semantic shapes strictly:
+   - roundedRect → Start / End / Process
+   - diamond      → Decision
+   - cylinder     → Database
+   - parallelogram → Input / Output
+   - document     → Reports / Exports
+   - circle       → Trigger / Connector
 
-COLOR SYSTEM:
-- Processes: #3b82f6 (Vibrant Blue)
-- Success/Start/End: #10b981 (Emerald Green)
-- Decisions/Pending: #f59e0b (Amber Orange)
-- Errors/Stop: #ef4444 (Rose Red)
-- Data/DB: #8b5cf6 (Violet Purple)
+COLOR SYSTEM (apply exactly):
+   - Process:        #3b82f6  (Vibrant Blue)
+   - Start/Success:  #10b981  (Emerald Green)
+   - Decision:       #f59e0b  (Amber Orange)
+   - Error/Failure:  #ef4444  (Rose Red)
+   - Data/DB:        #8b5cf6  (Violet Purple)
 
-STRICT NODE FORMAT:
+STRICT NODE SCHEMA:
 {
   "id": "node_1",
   "type": "shape_type",
   "position": { "x": number, "y": number },
-  "data": { "label": "Action Text", "backgroundColor": "#hex", "borderColor": "#334155", "textColor": "#ffffff" }
+  "data": {
+    "label": "Action Text",
+    "backgroundColor": "#hex",
+    "borderColor": "#334155",
+    "textColor": "#ffffff"
+  }
 }
 
-STRICT EDGE FORMAT:
+STRICT EDGE SCHEMA:
 {
   "id": "edge_1_2",
   "source": "node_1",
   "target": "node_2",
-  "label": "Action/Result",
+  "label": "Yes / No / Result",
   "animated": true
 }
+
+CONSTRAINTS:
+- Output ONLY a valid, parsable JSON object — no explanations, no markdown, no code fences.
+- The JSON must contain exactly two top-level keys: "nodes" and "edges".
+- No missing fields, no additional properties beyond the schema.
+- Every node must be connected; no orphaned nodes.
+- Every decision branch must be complete (exactly two outgoing edges).
+- Ensure logical continuity and layout consistency throughout.
+
+SELF-CHECK BEFORE OUTPUT:
+✔ JSON is fully parsable
+✔ All nodes are reachable and connected
+✔ Every diamond has exactly two outgoing edges with labels
+✔ Layout is clean with no overlapping nodes
+✔ Colors and shapes match their semantic roles
+
+Take a deep breath and work through this step-by-step.
 `;
 
         const userPrompt = `
 Project Name: ${title}
 Logic to Map: ${prompt}
 
-Task: Create a highly detailed and professional flowchart for the logic specified above.
-1. Break the flow into 8-15 detailed, logical steps.
-2. Ensure every decision point (diamond) has clear outcome paths.
-3. Layout the nodes in a clean, non-overlapping sequential hierarchy.
-4. Ensure labels are professional and provide clear context.
-`;
+Task: Analyze the project name and logic above, then generate a complete, production-ready flowchart JSON.
 
+Checklist:
+1. Break the flow into 8–15 detailed, logical steps covering the full lifecycle (input → validation → processing → output → error handling).
+2. Every decision node (diamond) must have exactly two labeled outgoing paths.
+3. Nodes must follow the semantic shape and color rules defined in your instructions.
+4. Layout must be sequential and non-overlapping (min 300px spacing between nodes).
+5. Labels must be professional and action-oriented — no vague terms like "Step 1" or "Process".
+`;
         const aiResponse = await callAIProvider({
             platform,
             apiKey,

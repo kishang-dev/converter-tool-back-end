@@ -698,169 +698,271 @@ async function extractPageText(filePath, pageIndex) {
 
 // Modify Page Content (Redact old, Write new)
 async function modifyPageContent(filePath, pageIndex, modifications) {
-  // modifications: Array of { 
-  //   type: 'text', 
-  //   text: string, 
-  //   x: number, 
-  //   y: number, 
-  //   size: number, 
-  //   originalX: number, 
-  //   originalY: number, 
-  //   originalWidth: number, 
-  //   originalHeight: number 
-  // }
-  // coordinates assumed to be PDF points (bottom-left origin) or we need to handle conversion
+  try {
+    const pdfBytes = await fs.readFile(filePath);
+    const pdfDoc = await PDFDocument.load(pdfBytes);
+    const pages = pdfDoc.getPages();
+    const page = pages[pageIndex];
+    const { width: pageWidth, height: pageHeight } = page.getSize();
 
-  const pdfBytes = await fs.readFile(filePath);
-  const pdfDoc = await PDFDocument.load(pdfBytes);
-  const pages = pdfDoc.getPages();
-  const page = pages[pageIndex];
-  const { height } = page.getSize();
+    const { rgb, StandardFonts, degrees } = require("pdf-lib");
+    const fonts = {
+      serif: {
+        regular: await pdfDoc.embedFont(StandardFonts.TimesRoman),
+        bold: await pdfDoc.embedFont(StandardFonts.TimesRomanBold),
+        italic: await pdfDoc.embedFont(StandardFonts.TimesRomanItalic),
+        boldItalic: await pdfDoc.embedFont(StandardFonts.TimesRomanBoldItalic),
+      },
+      sans: {
+        regular: await pdfDoc.embedFont(StandardFonts.Helvetica),
+        bold: await pdfDoc.embedFont(StandardFonts.HelveticaBold),
+        italic: await pdfDoc.embedFont(StandardFonts.HelveticaOblique),
+        boldItalic: await pdfDoc.embedFont(StandardFonts.HelveticaBoldOblique),
+      }
+    };
 
-  const { rgb, StandardFonts } = require("pdf-lib");
-  const fonts = {
-    serif: {
-      regular: await pdfDoc.embedFont(StandardFonts.TimesRoman),
-      bold: await pdfDoc.embedFont(StandardFonts.TimesRomanBold),
-      italic: await pdfDoc.embedFont(StandardFonts.TimesRomanItalic),
-      boldItalic: await pdfDoc.embedFont(StandardFonts.TimesRomanBoldItalic),
-    },
-    sans: {
-      regular: await pdfDoc.embedFont(StandardFonts.Helvetica),
-      bold: await pdfDoc.embedFont(StandardFonts.HelveticaBold),
-      italic: await pdfDoc.embedFont(StandardFonts.HelveticaOblique),
-      boldItalic: await pdfDoc.embedFont(StandardFonts.HelveticaBoldOblique),
-    }
-  };
+    const hexToRgb = (hex) => {
+      if (!hex || hex === 'transparent') return null;
+      const r = parseInt(hex.slice(1, 3), 16) / 255;
+      const g = parseInt(hex.slice(3, 5), 16) / 255;
+      const b = parseInt(hex.slice(5, 7), 16) / 255;
+      return rgb(r, g, b);
+    };
 
-  for (const mod of modifications) {
-    if (mod.type === 'replace') {
-      // 1. Calculate Coordinates using CropBox (Robust)
-      // Frontend sends mod.x / mod.y which are Viewport Top-Down coordinates.
-      // mod.y for 'replace' items comes from extractPageText: viewport.height - ty.
-      // So mod.y represents the BASELINE from the top of the viewport.
-
+    const getPdfCoords = (x, y) => {
       const mediaBox = page.getMediaBox();
       const cropBox = page.getCropBox() || mediaBox;
+      return {
+        pdfX: cropBox.x + x,
+        pdfY: (cropBox.y + cropBox.height) - y
+      };
+    };
 
-      // Convert Viewport Baseline Y to PDF Baseline Y
-      // PDF Y = (CropBox Top) - Viewport Y
-      // because Viewport Y is distance from Top.
-      const pdfBaselineY = (cropBox.y + cropBox.height) - mod.y;
+    for (const mod of modifications) {
+      const { pdfX, pdfY } = getPdfCoords(mod.x, mod.y);
 
-      // PDF X = CropBox Left + Viewport X
-      const pdfX = cropBox.x + mod.x;
+      switch (mod.type) {
+        case 'replace': {
+          // Calculate pure width without padding for accurate centering math
+          const estimatedOriginalW = mod.originalText && mod.size ? mod.originalText.length * mod.size * 0.55 : 0;
+          const actualOriginalWidth = Math.max(mod.originalWidth || 0, estimatedOriginalW);
+          const deleteW = actualOriginalWidth + 8; // Added horizontal padding for safe erasure
+          const fontSize = mod.size || 12;
 
-      const deleteW = mod.originalWidth || (mod.text.length * mod.size * 0.5);
-      // Heuristic sizes for redaction
-      const fontSize = mod.size;
+          // PDF Baseline adjustment: descenders go below baseline, so we start ~35% below baseline
+          const boxBottom = pdfY - ((mod.originalHeight || fontSize) * 0.35);
+          const boxHeight = (mod.originalHeight || fontSize) * 1.5; // Tall enough for ascenders + descenders
 
-      // 2. Draw Redaction Box (Aggressive Coverage)
-      // We start below the baseline to cover descenders, and go high enough to cover ascenders.
-      // Standard Box: descent ~0.3em, ascent ~0.8-1.0em.
-      // We'll use 0.5em descent and 1.2em ascent for safety.
+          // Erase the original text flawlessly
+          page.drawRectangle({
+            x: pdfX - 4, // Shift left slightly to catch the first letter's stroke
+            y: boxBottom,
+            width: deleteW + 4,
+            height: boxHeight,
+            color: rgb(1, 1, 1),
+            opacity: 1, // Enforce full opacity mask
+          });
 
-      const boxBottom = pdfBaselineY - (fontSize * 0.5);
-      const boxHeight = fontSize * 2.0; // 0.5 down + 1.5 up = Total 2.0 coverage
+          // If text is empty, this was deeply deleted. Skip redrawing.
+          if (!mod.text || mod.text.trim().length === 0) {
+            break;
+          }
 
-      const boxLeft = pdfX - 2; // Small left padding
-      const boxWidth = deleteW + 5; // Slight padding
+          const fontSet = mod.isSerif ? fonts.serif : fonts.sans;
+          let selectedFont = fontSet.regular;
+          if (mod.isBold && mod.isItalic) selectedFont = fontSet.boldItalic;
+          else if (mod.isBold) selectedFont = fontSet.bold;
+          else if (mod.isItalic) selectedFont = fontSet.italic;
 
-      // Draw White Box (Redaction)
-      page.drawRectangle({
-        x: boxLeft,
-        y: boxBottom,
-        width: boxWidth,
-        height: boxHeight,
-        color: rgb(1, 1, 1),
-      });
+          // Auto-align feature so the new text preserves original native centering
+          let finalX = pdfX;
+          if (mod.align === 'center') {
+            const newTextWidth = selectedFont.widthOfTextAtSize(mod.text, fontSize);
+            const originalCenterX = pdfX + (actualOriginalWidth / 2);
+            finalX = originalCenterX - (newTextWidth / 2);
+          }
 
-      // 3. Draw New Text
-      const fontSet = mod.isSerif ? fonts.serif : fonts.sans;
-      let selectedFont = fontSet.regular;
-      if (mod.isBold && mod.isItalic) selectedFont = fontSet.boldItalic;
-      else if (mod.isBold) selectedFont = fontSet.bold;
-      else if (mod.isItalic) selectedFont = fontSet.italic;
+          // ONLY wrap when text genuinely hits the extreme right edge of the physical page document
+          const wrapWidth = Math.max(pageWidth - finalX - 15, 50);
 
-      // Calculate remaining width to prevent clipping
-      const pageWidth = page.getSize().width;
-      const remainingWidth = Math.max(pageWidth - pdfX - 20, 50);
-      const wrapWidth = Math.min(deleteW + 10, remainingWidth);
+          page.drawText(mod.text, {
+            x: finalX,
+            y: pdfY,
+            size: fontSize,
+            font: selectedFont,
+            color: rgb(0, 0, 0),
+            maxWidth: wrapWidth,
+            lineHeight: fontSize * 1.15,
+          });
+          break;
+        }
 
-      page.drawText(mod.text, {
-        x: pdfX,
-        y: pdfBaselineY,
-        size: fontSize,
-        font: selectedFont,
-        color: rgb(0, 0, 0),
-        maxWidth: wrapWidth,
-        lineHeight: fontSize * 1.15,
-      });
-    } else if (mod.type === 'add') {
-      // Add text (mod.y from frontend is PDF points from Top-Left)
-      // ...
-      const mediaBox = page.getMediaBox();
-      const cropBox = page.getCropBox() || mediaBox;
-      const pdfBaselineY = (cropBox.y + cropBox.height) - mod.y;
-      const pdfX = cropBox.x + mod.x;
+        case 'add':
+        case 'text': {
+          const color = hexToRgb(mod.color) || rgb(0, 0, 0);
+          const fontSet = mod.isSerif ? fonts.serif : fonts.sans;
+          let selectedFont = fontSet.regular;
+          if (mod.isBold && mod.isItalic) selectedFont = fontSet.boldItalic;
+          else if (mod.isBold) selectedFont = fontSet.bold;
+          else if (mod.isItalic) selectedFont = fontSet.italic;
 
-      let color = rgb(0, 0, 0);
-      if (mod.color) {
-        const r = parseInt(mod.color.slice(1, 3), 16) / 255;
-        const g = parseInt(mod.color.slice(3, 5), 16) / 255;
-        const b = parseInt(mod.color.slice(5, 7), 16) / 255;
-        color = rgb(r, g, b);
+          const drawMaxWidth = mod.boxWidth ? Math.min(mod.boxWidth + 10, pageWidth - pdfX - 40) : (pageWidth - pdfX - 40);
+
+          page.drawText(mod.text, {
+            x: pdfX,
+            y: pdfY,
+            size: mod.size,
+            font: selectedFont,
+            color: color,
+            maxWidth: drawMaxWidth > 10 ? drawMaxWidth : undefined,
+            lineHeight: mod.size * 1.15,
+          });
+          break;
+        }
+
+        case 'highlight': {
+          const color = hexToRgb(mod.color) || rgb(1, 1, 0);
+          page.drawRectangle({
+            x: pdfX,
+            y: pdfY - mod.height,
+            width: mod.width,
+            height: mod.height,
+            color: color,
+            opacity: mod.opacity || 0.4,
+          });
+          break;
+        }
+
+        case 'rectangle': {
+          const fillColor = hexToRgb(mod.fillColor);
+          const strokeColor = hexToRgb(mod.strokeColor);
+          page.drawRectangle({
+            x: pdfX,
+            y: pdfY - mod.height,
+            width: mod.width,
+            height: mod.height,
+            color: fillColor,
+            borderColor: strokeColor,
+            borderWidth: mod.strokeWidth || 0,
+          });
+          break;
+        }
+
+        case 'circle': {
+          const fillColor = hexToRgb(mod.fillColor);
+          const strokeColor = hexToRgb(mod.strokeColor);
+          page.drawEllipse({
+            x: pdfX + mod.width / 2,
+            y: pdfY - mod.height / 2,
+            xRadius: mod.width / 2,
+            yRadius: mod.height / 2,
+            color: fillColor,
+            borderColor: strokeColor,
+            borderWidth: mod.strokeWidth || 0,
+          });
+          break;
+        }
+
+        case 'image':
+        case 'signature': {
+          try {
+            const imgData = mod.data.split(',')[1] || mod.data;
+            const imgBytes = Buffer.from(imgData, 'base64');
+            let embeddedImage;
+            if (mod.data.includes('image/png')) {
+              embeddedImage = await pdfDoc.embedPng(imgBytes);
+            } else {
+              embeddedImage = await pdfDoc.embedJpg(imgBytes);
+            }
+            page.drawImage(embeddedImage, {
+              x: pdfX,
+              y: pdfY - mod.height,
+              width: mod.width,
+              height: mod.height,
+            });
+          } catch (e) {
+            console.error("Image embed failed:", e);
+          }
+          break;
+        }
+
+        case 'arrow': {
+          const color = hexToRgb(mod.color) || rgb(0, 0, 0);
+          const { pdfX: x2, pdfY: y2 } = getPdfCoords(mod.x2, mod.y2);
+
+          // Draw main line
+          page.drawLine({
+            start: { x: pdfX, y: pdfY },
+            end: { x: x2, y: y2 },
+            thickness: mod.strokeWidth || 2,
+            color: color,
+          });
+
+          // Draw arrowhead
+          const angle = Math.atan2(y2 - pdfY, x2 - pdfX);
+          const headLength = 10;
+          page.drawLine({
+            start: { x: x2, y: y2 },
+            end: {
+              x: x2 - headLength * Math.cos(angle - Math.PI / 6),
+              y: y2 - headLength * Math.sin(angle - Math.PI / 6)
+            },
+            thickness: mod.strokeWidth || 2,
+            color: color,
+          });
+          page.drawLine({
+            start: { x: x2, y: y2 },
+            end: {
+              x: x2 - headLength * Math.cos(angle + Math.PI / 6),
+              y: y2 - headLength * Math.sin(angle + Math.PI / 6)
+            },
+            thickness: mod.strokeWidth || 2,
+            color: color,
+          });
+          break;
+        }
+
+        case 'checkbox': {
+          const size = mod.size || 12;
+          page.drawRectangle({
+            x: pdfX,
+            y: pdfY - size,
+            width: size,
+            height: size,
+            borderColor: rgb(0, 0, 0),
+            borderWidth: 1,
+          });
+          if (mod.checked) {
+            page.drawLine({
+              start: { x: pdfX + 2, y: pdfY - 2 },
+              end: { x: pdfX + size - 2, y: pdfY - size + 2 },
+              thickness: 1,
+              color: rgb(0, 0, 0)
+            });
+            page.drawLine({
+              start: { x: pdfX + size - 2, y: pdfY - 2 },
+              end: { x: pdfX + 2, y: pdfY - size + 2 },
+              thickness: 1,
+              color: rgb(0, 0, 0)
+            });
+          }
+          break;
+        }
       }
-
-      // Draw background if requested
-      if (mod.backgroundColor && mod.backgroundColor !== 'transparent') {
-        const bgCol = rgb(1, 1, 1);
-        const bgWidth = mod.boxWidth || (mod.text.length * mod.size * 0.6);
-        const bgHeight = mod.boxHeight || (mod.size * 1.4);
-        // Position rectangle relative to baseline
-        const rectBottom = pdfBaselineY - (mod.size * 0.3);
-
-        page.drawRectangle({
-          x: pdfX,
-          y: rectBottom,
-          width: bgWidth,
-          height: bgHeight,
-          color: bgCol
-        });
-      }
-
-      const fontSet = mod.isSerif ? fonts.serif : fonts.sans;
-      let selectedFont = fontSet.regular;
-      if (mod.isBold && mod.isItalic) selectedFont = fontSet.boldItalic;
-      else if (mod.isBold) selectedFont = fontSet.bold;
-      else if (mod.isItalic) selectedFont = fontSet.italic;
-
-      // Ensure we don't wrap too aggressively and respect page boundaries
-      const pageWidth = page.getSize().width;
-      const remainingWidth = Math.max(pageWidth - pdfX - 40, 50);
-      const drawMaxWidth = mod.boxWidth ? Math.min(mod.boxWidth + 10, remainingWidth) : remainingWidth;
-
-      page.drawText(mod.text.trim().replace(/\s+/g, ' '), { // Normalize spaces
-        x: pdfX,
-        y: pdfBaselineY,
-        size: mod.size,
-        font: selectedFont,
-        color: color,
-        maxWidth: drawMaxWidth,
-        lineHeight: mod.size * 1.15,
-      });
     }
+
+    const newBytes = await pdfDoc.save();
+    const outputPath = path.join(
+      __dirname,
+      "../outputs",
+      `content-edited-${Date.now()}.pdf`
+    );
+    await fs.writeFile(outputPath, newBytes);
+
+    return outputPath;
+  } catch (error) {
+    throw new Error(`PDF modification failed: ${error.message}`);
   }
-
-  const newBytes = await pdfDoc.save();
-  const outputPath = path.join(
-    __dirname,
-    "../outputs",
-    `content-edited-${Date.now()}.pdf`
-  );
-  await fs.writeFile(outputPath, newBytes);
-
-  return outputPath;
 }
 // Add Blank Page
 async function addBlankPage(filePath) {
