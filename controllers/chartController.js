@@ -6,7 +6,7 @@ const { callAIProvider } = require("../utils/aiProvider");
 // @access  Public (Guest/Auth)
 exports.generateChartWithAI = async (req, res) => {
     try {
-        const { title, prompt, platform, apiKey, guestId: bodyGuestId } = req.body;
+        const { title, prompt, platform, apiKey, chartType = "Flowchart", guestId: bodyGuestId } = req.body;
         let userId = req.user ? req.user._id : null;
         let guestId = req.headers["x-guest-id"] || bodyGuestId;
 
@@ -18,90 +18,42 @@ exports.generateChartWithAI = async (req, res) => {
             return res.status(400).json({ success: false, error: "Missing required fields" });
         }
 
-        //         const systemPrompt = `
-        // You are an expert AI Flowchart Architect and logic analyst.
-        // Your goal is to transform a user's description into a high-quality, professional, and comprehensive flowchart.
-
-        // STRICT OUTPUT RULE:
-        // - Return ONLY a valid, parsable JSON object.
-        // - NO conversion text, NO markdown, NO \`\`\`json tags.
-        // - The JSON must have "nodes" and "edges" arrays.
-
-        // CORE PRINCIPLES:
-        // 1. DEEP DETAIL: Do not just map the surface logic. Break down the request into 8-15 granular steps. Include authentication, validation, processing, and error handling paths.
-        // 2. HIERARCHICAL LAYOUT: Arrange nodes in a clear, sequential order (Top-to-Bottom or Left-to-Right). Maintain a minimum distance of 300px between nodes to avoid clutter.
-        // 3. DESCRIPTIVE LABELS: Use action-oriented, professional labels (e.g., "Verify User Credentials" instead of just "Login").
-        // 4. SEMANTIC SHAPES (STRICT):
-        //    - roundedRect: Process steps or Start/End.
-        //    - diamond: Decision points (always include Yes/No paths).
-        //    - cylinder: Database/Data Storage.
-        //    - parallelogram: User Input or Output data.
-        //    - document: Reports, Exports, or physical documents.
-        //    - circle: Trigger events or small connectors.
-
-        // COLOR SYSTEM:
-        // - Processes: #3b82f6 (Vibrant Blue)
-        // - Success/Start/End: #10b981 (Emerald Green)
-        // - Decisions/Pending: #f59e0b (Amber Orange)
-        // - Errors/Stop: #ef4444 (Rose Red)
-        // - Data/DB: #8b5cf6 (Violet Purple)
-
-        // STRICT NODE FORMAT:
-        // {
-        //   "id": "node_1",
-        //   "type": "shape_type",
-        //   "position": { "x": number, "y": number },
-        //   "data": { "label": "Action Text", "backgroundColor": "#hex", "borderColor": "#334155", "textColor": "#ffffff" }
-        // }
-
-        // STRICT EDGE FORMAT:
-        // {
-        //   "id": "edge_1_2",
-        //   "source": "node_1",
-        //   "target": "node_2",
-        //   "label": "Action/Result",
-        //   "animated": true
-        // }
-        // `;
-
-        //         const userPrompt = `
-        // Project Name: ${title}
-        // Logic to Map: ${prompt}
-
-        // Task: Create a highly detailed and professional flowchart for the logic specified above.
-        // 1. Break the flow into 8-15 detailed, logical steps.
-        // 2. Ensure every decision point (diamond) has clear outcome paths.
-        // 3. Layout the nodes in a clean, non-overlapping sequential hierarchy.
-        // 4. Ensure labels are professional and provide clear context.
-        // `;
-
-
-
-
         const systemPrompt = `
-Act like a senior AI Flowchart Architect, systems designer, and logic analyst with deep expertise in process modeling and structured JSON generation.
+Act like a senior AI Diagram Architect, systems designer, and logic analyst with deep expertise in process modeling, BPMN, UML, and structured JSON generation.
 
-Your goal is to transform a user's project description into a highly detailed, professional, and production-ready flowchart represented as a strictly valid JSON object.
+Your goal is to transform a user's project description into a highly detailed, professional, and production-ready ${chartType} represented as a strictly valid JSON object.
+
+DIAGRAM TYPE SPECIFIC RULES:
+- Flowchart: Standard logic flow (Process, Decision, Input/Output).
+- Process Flow Diagram (PFD): Focus on industrial process streams, equipment, and flow.
+- Workflow Diagram: Focus on business tasks, sequence, and performers.
+- Swimlane Diagram: Organize nodes into horizontal or vertical lanes by role/department (use 'x' or 'y' positions carefully to denote lanes).
+- BPMN Diagram: Use standard BPMN elements (Events, Gateways, Activities).
+- Data Flow Diagram (DFD): Focus on how data moves through a system (External Entities, Processes, Data Stores).
+- Decision Tree: A tree-like model of decisions and their possible consequences.
+- Algorithm Flowchart: High-level programming logic (Loops, Conditions, Assignments).
+- System Flowchart: How data flows through a physical or virtual system.
+- Cross-functional Flowchart: Similar to Swimlane, showing relationship between a process and the functional units.
 
 REQUIREMENTS:
-1. Decompose the logic into 8–15 granular, meaningful steps, including: user input, validation, authentication (if applicable), processing, database interactions, success paths, and error handling.
+1. Decompose the logic into 8–15 granular, meaningful steps relevant to a ${chartType}.
 2. Use precise, action-oriented labels (e.g., "Validate Input Data", "Store Record in Database", "Handle Authentication Failure").
-3. Ensure every decision node (diamond) includes exactly two clearly labeled outgoing edges (e.g., Yes/No, Valid/Invalid, Success/Failure).
+3. Ensure every decision node (diamond or gateway) includes exactly two clearly labeled outgoing edges (e.g., Yes/No, Valid/Invalid, Success/Failure).
 4. Maintain a clean hierarchical layout (top-to-bottom or left-to-right) with a minimum spacing of 300px between nodes.
 5. Apply correct semantic shapes strictly:
    - roundedRect → Start / End / Process
-   - diamond      → Decision
-   - cylinder     → Database
-   - parallelogram → Input / Output
-   - document     → Reports / Exports
-   - circle       → Trigger / Connector
+   - diamond      → Decision / Gateway
+   - cylinder     → Database / Data Store
+   - parallelogram → Input / Output / External Entity
+   - document     → Reports / Exports / Documents
+   - circle       → Trigger / Connection / Event
 
 COLOR SYSTEM (apply exactly):
-   - Process:        #3b82f6  (Vibrant Blue)
-   - Start/Success:  #10b981  (Emerald Green)
-   - Decision:       #f59e0b  (Amber Orange)
-   - Error/Failure:  #ef4444  (Rose Red)
-   - Data/DB:        #8b5cf6  (Violet Purple)
+   - Process/Activity: #3b82f6  (Vibrant Blue)
+   - Start/Success/Event: #10b981  (Emerald Green)
+   - Decision/Gateway: #f59e0b  (Amber Orange)
+   - Error/Failure: #ef4444  (Rose Red)
+   - Data/DB/Store: #8b5cf6  (Violet Purple)
 
 STRICT NODE SCHEMA:
 {
@@ -128,33 +80,24 @@ STRICT EDGE SCHEMA:
 CONSTRAINTS:
 - Output ONLY a valid, parsable JSON object — no explanations, no markdown, no code fences.
 - The JSON must contain exactly two top-level keys: "nodes" and "edges".
-- No missing fields, no additional properties beyond the schema.
 - Every node must be connected; no orphaned nodes.
-- Every decision branch must be complete (exactly two outgoing edges).
 - Ensure logical continuity and layout consistency throughout.
 
-SELF-CHECK BEFORE OUTPUT:
-✔ JSON is fully parsable
-✔ All nodes are reachable and connected
-✔ Every diamond has exactly two outgoing edges with labels
-✔ Layout is clean with no overlapping nodes
-✔ Colors and shapes match their semantic roles
-
-Take a deep breath and work through this step-by-step.
+Take a deep breath and work through this step-by-step for a ${chartType}.
 `;
 
         const userPrompt = `
 Project Name: ${title}
+Diagram Type: ${chartType}
 Logic to Map: ${prompt}
 
-Task: Analyze the project name and logic above, then generate a complete, production-ready flowchart JSON.
+Task: Analyze the project name and logic above, then generate a complete, professional ${chartType} JSON.
 
 Checklist:
-1. Break the flow into 8–15 detailed, logical steps covering the full lifecycle (input → validation → processing → output → error handling).
-2. Every decision node (diamond) must have exactly two labeled outgoing paths.
+1. Break the flow into 8–15 detailed, logical steps covering the full lifecycle of this ${chartType}.
+2. Ensure decision/gateway nodes have labeled outgoing paths.
 3. Nodes must follow the semantic shape and color rules defined in your instructions.
 4. Layout must be sequential and non-overlapping (min 300px spacing between nodes).
-5. Labels must be professional and action-oriented — no vague terms like "Step 1" or "Process".
 `;
         const aiResponse = await callAIProvider({
             platform,
@@ -192,7 +135,8 @@ Checklist:
         const chart = new Chart({
             userId,
             guestId,
-            title: title || "AI Generated Chart",
+            title: title || `AI Generated ${chartType}`,
+            chartType: chartType,
             nodes: aiResponse.nodes,
             edges: cleanEdges,
             viewport: { x: 0, y: 0, zoom: 1 }
@@ -215,7 +159,7 @@ Checklist:
 // @access  Public (Guest/Auth)
 exports.createChart = async (req, res) => {
     try {
-        const { title, nodes, edges, viewport } = req.body;
+        const { title, nodes, edges, viewport, chartType = "Flowchart" } = req.body;
         let userId = req.user ? req.user._id : null;
         let guestId = req.headers["x-guest-id"] || req.body.guestId;
 
@@ -227,6 +171,7 @@ exports.createChart = async (req, res) => {
             userId,
             guestId,
             title: title || "Untitled Chart",
+            chartType: chartType,
             nodes: nodes || [],
             edges: edges || [],
             viewport: viewport || { x: 0, y: 0, zoom: 1 }
@@ -297,7 +242,7 @@ exports.getChartById = async (req, res) => {
 // @access  Public (Guest/Auth)
 exports.updateChart = async (req, res) => {
     try {
-        const { title, nodes, edges, viewport } = req.body;
+        const { title, nodes, edges, viewport, chartType } = req.body;
         let chart = await Chart.findById(req.params.id);
 
         if (!chart) {
@@ -308,6 +253,7 @@ exports.updateChart = async (req, res) => {
         if (nodes !== undefined) chart.nodes = nodes;
         if (edges !== undefined) chart.edges = edges;
         if (viewport !== undefined) chart.viewport = viewport;
+        if (chartType !== undefined) chart.chartType = chartType;
 
         await chart.save();
 

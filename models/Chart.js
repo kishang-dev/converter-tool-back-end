@@ -26,6 +26,10 @@ const chartSchema = new mongoose.Schema(
         viewport: {
             type: Object,
             default: { x: 0, y: 0, zoom: 1 }
+        },
+        chartType: {
+            type: String,
+            default: "Flowchart",
         }
     },
     {
