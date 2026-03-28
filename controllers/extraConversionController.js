@@ -261,7 +261,36 @@ exports.pdfToSpeech = async (req, res) => {
             host: 'https://translate.google.com'
         });
 
-        res.json({ success: true, message: "Speech generated", audioUrls: tsResult });
+        const https = require('https');
+        const downloadAudio = (url) => new Promise((resolve, reject) => {
+            https.get(url, (response) => {
+                if (response.statusCode !== 200) return reject(new Error('Failed to fetch TTS segment'));
+                const chunks = [];
+                response.on('data', chunk => chunks.push(chunk));
+                response.on('end', () => resolve(Buffer.concat(chunks)));
+            }).on('error', reject);
+        });
+
+        const buffers = [];
+        for (const item of tsResult) {
+            try {
+                const b = await downloadAudio(item.url);
+                buffers.push(b);
+            } catch (err) {
+                console.error("Failed to download TTS segment:", err);
+            }
+        }
+
+        if (buffers.length === 0) return res.status(500).json({ error: "Failed to generate speech audio streams from provider" });
+
+        const finalBuffer = Buffer.concat(buffers);
+        const outputPath = path.join(__dirname, "../outputs", `speech-${Date.now()}.mp3`);
+        await fs.writeFile(outputPath, finalBuffer);
+
+        const originalBase = path.parse(file.originalName).name;
+        const mp3File = await createFileRecord(req, `${originalBase}_audio.mp3`, outputPath, "audio/mpeg", "convert-pdf-to-speech");
+
+        res.json({ success: true, message: "Speech automatically mapped to MP3 file", file: mp3File });
     } catch (error) {
         console.error("PDF to Speech error:", error);
         res.status(500).json({ error: "Conversion failed", details: error.message });
