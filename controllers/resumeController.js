@@ -143,7 +143,8 @@ exports.parseResume = async (req, res) => {
             experience: ['experience', 'work', 'employment', 'history', 'professional experience', 'internship', 'career history'],
             education: ['education', 'academic', 'qualification', 'degree', 'study', 'academic background'],
             skills: ['skills', 'technologies', 'expertise', 'technical skills', 'competencies', 'skill set'],
-            languages: ['languages']
+            languages: ['languages'],
+            interests: ['interests', 'hobbies', 'activities', 'volunteering']
         };
 
         let currentSection = '';
@@ -215,6 +216,9 @@ function saveSectionData(section, buffer, data) {
             break;
         case 'languages':
             data.languages = lines.map(l => ({ language: l, proficiency: 'Fluent' }));
+            break;
+        case 'interests':
+            data.interests = lines.flatMap(l => l.split(/[|,;•·]/)).map(i => i.trim()).filter(i => i.length > 0);
             break;
     }
 }
@@ -303,47 +307,85 @@ exports.exportResume = async (req, res) => {
             filename = `resume-temp-${Date.now()}.pdf`;
         }
 
-        const { html } = req.body;
+        const { html, resumeData } = req.body;
         if (!html) return res.status(400).json({ error: 'HTML content is required' });
 
-        console.log(`Generating PDF. HTML length: ${html.length}`);
-
-        const browser = await puppeteer.launch({
-            headless: "new",
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-        });
+        const { getBrowser } = require('../utils/browserUtils');
+        const browser = await getBrowser();
         const page = await browser.newPage();
-
-        // Set a standard viewport
         await page.setViewport({ width: 1200, height: 1600 });
-
-        await page.setContent(html, {
-            waitUntil: 'networkidle0',
-            timeout: 60000
-        });
-
-        // Wait for fonts and styles to fully render
-        await new Promise(r => setTimeout(r, 2000));
+        await page.setContent(html, { waitUntil: 'networkidle0', timeout: 60000 });
+        await new Promise(r => setTimeout(r, 1000));
 
         const outputPath = path.join(__dirname, '../outputs', filename);
-
-        // Ensure outputs directory exists
         const outputsDir = path.join(__dirname, '../outputs');
-        if (!fs.existsSync(outputsDir)) {
-            fs.mkdirSync(outputsDir, { recursive: true });
-        }
+        if (!fs.existsSync(outputsDir)) fs.mkdirSync(outputsDir, { recursive: true });
 
-        await page.pdf({
-            path: outputPath,
+        // Step 1: Render temporary PDF
+        const pdfBuffer = await page.pdf({
             format: 'A4',
             printBackground: true,
             margin: { top: '0px', right: '0px', bottom: '0px', left: '0px' }
         });
-
         await browser.close();
-        res.status(200).json({ success: true, downloadUrl: `/outputs/${filename}` });
+
+        // Step 2: Inject Invisible AI Data for Instant Re-editing (The "Magic" Bit)
+        const { PDFDocument } = require('pdf-lib');
+        const pdfDoc = await PDFDocument.load(pdfBuffer);
+
+        if (resumeData) {
+            // We encode the JSON in the 'Subject' and 'Producer' fields as a backup.
+            // This ensures our parser can reclaim the exact data later without AI hallucination.
+            const encoded = Buffer.from(JSON.stringify(resumeData)).toString('base64');
+            pdfDoc.setSubject(`RESUME_DATA:${encoded}`);
+            pdfDoc.setProducer('Antigravity Resume Builder Engine');
+            pdfDoc.setTitle(resumeData.personalInfo?.fullName || 'My Resume');
+        }
+
+        const finalPdfBytes = await pdfDoc.save();
+        await fs.writeFile(outputPath, Buffer.from(finalPdfBytes));
+
+        res.status(200).json({ success: true, downloadUrl: `/outputs/${filename}`, filename });
     } catch (error) {
         console.error("Export Error:", error);
         res.status(500).json({ error: 'Failed to export PDF: ' + error.message });
+    }
+};
+
+// Update parseResume to handle this new metadata
+const originalParseResume = exports.parseResume;
+exports.parseResume = async (req, res) => {
+    try {
+        if (!req.file || path.extname(req.file.originalname).toLowerCase() !== '.pdf') {
+            return await originalParseResume(req, res);
+        }
+
+        const buffer = await fs.readFile(req.file.path);
+        const { PDFDocument } = require('pdf-lib');
+
+        try {
+            const pdfDoc = await PDFDocument.load(buffer);
+            const subject = pdfDoc.getSubject();
+
+            if (subject && subject.startsWith('RESUME_DATA:')) {
+                console.log("⚡ INSTANT RECOVERY: Found embedded AI metadata.");
+                const base64 = subject.split(':')[1];
+                const data = JSON.parse(Buffer.from(base64, 'base64').toString());
+
+                // Map location to address if needed (backwards compatibility for AI schema)
+                if (data.personalInfo && data.personalInfo.location && !data.personalInfo.address) {
+                    data.personalInfo.address = data.personalInfo.location;
+                }
+
+                return res.status(200).json({ success: true, data, source: 'embedded' });
+            }
+        } catch (e) {
+            console.warn("Metadata check failed, falling back to heuristic parsing:", e.message);
+        }
+
+        return await originalParseResume(req, res);
+    } catch (error) {
+        console.error("Parse wrapper error:", error);
+        res.status(500).json({ error: 'Resume parsing failed' });
     }
 };

@@ -1,4 +1,5 @@
 const puppeteer = require("puppeteer");
+const path = require("path");
 
 /**
  * Ultra-robust browser initiator ensuring Live Server and Local setups never crash.
@@ -25,7 +26,11 @@ async function getBrowser() {
         // Strategy 2: System Paths (Linux/Mac/Windows Local)
         const sysPath = process.env.PUPPETEER_EXECUTABLE_PATH
             || (process.platform === 'win32'
-                ? "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+                ? [
+                    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+                    "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+                    path.join(process.env.LOCALAPPDATA || '', "Google\\Chrome\\Application\\chrome.exe")
+                ].find(p => require('fs').existsSync(p))
                 : "/usr/bin/google-chrome"
             );
 

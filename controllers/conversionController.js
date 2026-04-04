@@ -150,19 +150,8 @@ exports.excelToPdf = async (req, res) => {
         htmlContent += "</body></html>";
 
         // Use Puppeteer to print PDF
-        const browser = await puppeteer.launch({
-            headless: "new",
-            args: [
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-accelerated-2d-canvas",
-                "--no-first-run",
-                "--no-zygote",
-                "--single-process", // Important for some environments
-                "--disable-gpu"
-            ]
-        });
+        const { getBrowser } = require("../utils/browserUtils");
+        const browser = await getBrowser();
         const page = await browser.newPage();
         await page.setContent(htmlContent);
 
@@ -229,19 +218,8 @@ exports.htmlToPdf = async (req, res) => {
         const file = await File.findById(fileId);
         if (!file) return res.status(404).json({ error: "File not found" });
 
-        const browser = await puppeteer.launch({
-            headless: "new",
-            args: [
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-accelerated-2d-canvas",
-                "--no-first-run",
-                "--no-zygote",
-                "--single-process",
-                "--disable-gpu"
-            ]
-        });
+        const { getBrowser } = require("../utils/browserUtils");
+        const browser = await getBrowser();
         const page = await browser.newPage();
 
         // Read file content

@@ -512,7 +512,7 @@ exports.csvToPdf = async (req, res) => {
         });
         await browser.close();
 
-        const originalBase = path.getBasename ? path.getBasename(file.originalName) : path.parse(file.originalName).name;
+        const originalBase = path.basename(file.originalName, path.extname(file.originalName));
         const pdfFile = await createFileRecord(req, `${originalBase}.pdf`, outputPath, "application/pdf", "convert-csv-to-pdf");
         res.json({ success: true, message: "Large CSV converted to PDF layout professionally", file: pdfFile });
     } catch (error) {
