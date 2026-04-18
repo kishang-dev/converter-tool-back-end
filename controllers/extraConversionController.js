@@ -617,12 +617,12 @@ exports.videoToPdf = async (req, res) => {
         if (!file) return res.status(404).json({ error: "File not found" });
 
         const safePath = resolveFilePath(file.path);
+        let transcribedChunks = [];
 
-        let extractedText = "";
         try {
-            console.log("Loading offline AI Transcriber...");
+            console.log("🚀 Initializing Premium Offline AI Transcriber...");
 
-            // Require static FFMPEG executable & Fluent wrapper dynamically
+            // Require static FFMPEG
             const ffmpeg = require('fluent-ffmpeg');
             const ffmpegPath = require('ffmpeg-static');
             ffmpeg.setFfmpegPath(ffmpegPath);
@@ -647,39 +647,83 @@ exports.videoToPdf = async (req, res) => {
             let audioData = wav.getSamples();
             if (Array.isArray(audioData)) audioData = audioData[0]; // mono fallback
 
-            // Fire up the completely local offline AI Transformer! (No Paid Keys!)
-            const { pipeline } = await import('@xenova/transformers'); // Dynamic import for ESM modules safely
-            console.log("Downloading/Loading localized Xenova ONNX model (~50MB)...");
-            const transcriber = await pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny.en', {
-                quantized: true, // heavily optimized WASM
+            // ADVANCED: Use Whisper-Base for significantly better accuracy than Tiny
+            const { pipeline } = await import('@xenova/transformers');
+            
+            console.log("🧠 Loading Intelligent Speech Model (Base-EN)...");
+            const transcriber = await pipeline('automatic-speech-recognition', 'Xenova/whisper-base.en', {
+                quantized: true,
             });
 
-            const output = await transcriber(audioData);
-            extractedText = output.text;
+            // CRITICAL FIX: Enabling chunking for long-form audio (prevents [MUSIC][APPLAUSE] truncation)
+            console.log("🎤 Transcribing long-form content (this may take a moment)...");
+            const output = await transcriber(audioData, {
+                chunk_length_s: 30,
+                stride_length_s: 5,
+                return_timestamps: true,
+            });
 
+            transcribedChunks = output.chunks || [{ text: output.text }];
+            
             fs.unlink(tempWavPath).catch(() => { }); // Cleanup Temp Wav
-
-            if (!extractedText.trim()) extractedText = "[Video contained no easily detectable speech.]";
         } catch (mlErr) {
-            console.error("Local ML Offline Inference Error:", mlErr);
-            extractedText += `\n[System Error: The offline local JS AI engine could not boot correctly. Details: ${mlErr.message}]\n`;
+            console.error("Local ML Inference Error:", mlErr);
+            transcribedChunks = [{ text: `[System Note: Local transcription had an issue. Error: ${mlErr.message}]` }];
         }
 
-        const notes = `Offline Video Transcription\n\nVideo Source: ${file.originalName}\nStatus: Processed Locally (Zero Paid API Keys Used)\n\n\nAI Speech Extraction:\n\n${extractedText}`;
+        // DESIGN: Build a Premium PDF using Puppeteer
+        const transcriptionHtml = transcribedChunks.map(c => {
+            const time = c.timestamp ? `[${Math.floor(c.timestamp[0])}s]` : "";
+            return `<div style="margin-bottom: 20px; display: flex; gap: 20px; align-items: flex-start;">
+                <span style="color: #6366f1; font-weight: 600; font-size: 13px; min-width: 60px; padding-top: 4px;">${time}</span>
+                <p style="margin: 0; color: #1f2937; line-height: 1.6; font-size: 15px;">${c.text.trim()}</p>
+            </div>`;
+        }).join("");
 
-        const outputPath = path.join(__dirname, "../outputs", `notes-${Date.now()}.pdf`);
-        const doc = new PDFDocument({ margin: 50 });
-        const stream = fs.createWriteStream(outputPath);
-        doc.pipe(stream);
-        doc.fontSize(18).text(`Video AI Transcript: ${path.basename(file.originalName)}`).moveDown();
-        doc.fontSize(12).text(notes);
-        doc.end();
+        const browser = await getBrowser();
+        const page = await browser.newPage();
 
-        await new Promise((resolve) => stream.on("finish", resolve));
+        await page.setContent(`
+            <html>
+            <head>
+                <style>
+                    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap');
+                    body { font-family: 'Outfit', sans-serif; padding: 60px; background: #fff; color: #111; }
+                    .header { border-bottom: 2px solid #f3f4f6; padding-bottom: 30px; margin-bottom: 40px; }
+                    .badge { display: inline-block; background: #eeefff; color: #4f46e5; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; margin-bottom: 10px; }
+                    h1 { font-size: 28px; margin: 0; color: #111827; }
+                    .meta { color: #6b7280; font-size: 14px; margin-top: 8px; }
+                    .content { margin-top: 40px; }
+                    .footer { margin-top: 60px; border-top: 1px solid #f3f4f6; padding-top: 20px; font-size: 12px; color: #9ca3af; text-align: center; }
+                </style>
+            </head>
+            <body>
+                <div class="header">
+                    <span class="badge">AI-Powered Transcription</span>
+                    <h1>Video Notes & Transcript</h1>
+                    <div class="meta">Source File: ${file.originalName} • Processed Locally • Secure & Private</div>
+                </div>
+                <div class="content">
+                    ${transcriptionHtml || "<p>No speech detected in the video track.</p>"}
+                </div>
+                <div class="footer">
+                    Generated by Offline Video-to-PDF Converter Tool • Powered by Local AI
+                </div>
+            </body>
+            </html>
+        `);
 
-        const originalBase = path.parse(file.originalName).name;
-        const pdfFile = await createFileRecord(req, `${originalBase}_notes.pdf`, outputPath, "application/pdf", "convert-video-to-pdf");
-        res.json({ success: true, message: "Video notes generated to PDF securely (Offline AI)", file: pdfFile });
+        const outputPath = path.join(__dirname, "../outputs", `transcript-${Date.now()}.pdf`);
+        await page.pdf({
+            path: outputPath,
+            format: "A4",
+            printBackground: true,
+            margin: { top: '20px', bottom: '20px', left: '20px', right: '20px' }
+        });
+        await browser.close();
+
+        const pdfFile = await createFileRecord(req, file.originalName.replace(/\.[^/.]+$/, "") + "_transcript.pdf", outputPath, "application/pdf", "convert-video-to-pdf");
+        res.json({ success: true, message: "Video transcript generated beautifully with Local AI", file: pdfFile });
     } catch (error) {
         console.error("Video to PDF error:", error);
         res.status(500).json({ error: "Conversion failed", details: error.message });
@@ -693,21 +737,18 @@ exports.audioToPdf = async (req, res) => {
         if (!file) return res.status(404).json({ error: "File not found" });
 
         const safePath = resolveFilePath(file.path);
+        let transcribedChunks = [];
 
-        let extractedText = "";
         try {
-            console.log("Loading offline AI Audio Transcriber...");
+            console.log("🚀 Initializing Premium Offline Audio Transcriber...");
 
-            // Require static FFMPEG executable & Fluent wrapper dynamically
             const ffmpeg = require('fluent-ffmpeg');
             const ffmpegPath = require('ffmpeg-static');
             ffmpeg.setFfmpegPath(ffmpegPath);
 
-            // Generate clean 16kHz WAV buffer locally
             const tempWavPath = path.join(__dirname, "../outputs", `temp-${Date.now()}.wav`);
             await new Promise((resolve, reject) => {
                 ffmpeg(safePath)
-                    .noVideo()
                     .format('wav')
                     .audioFrequency(16000)
                     .audioChannels(1)
@@ -721,41 +762,82 @@ exports.audioToPdf = async (req, res) => {
             const wav = new WaveFile(buffer);
             wav.toBitDepth('32f');
             let audioData = wav.getSamples();
-            if (Array.isArray(audioData)) audioData = audioData[0]; // mono fallback
+            if (Array.isArray(audioData)) audioData = audioData[0];
 
-            // Fire up the completely local offline AI Transformer! (No Paid Keys!)
-            const { pipeline } = await import('@xenova/transformers'); // Dynamic import for ESM modules safely
-            console.log("Downloading/Loading localized Xenova ONNX model (~50MB)...");
-            const transcriber = await pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny.en', {
-                quantized: true, // heavily optimized WASM
+            const { pipeline } = await import('@xenova/transformers');
+            
+            console.log("🧠 Loading Intelligent Speech Model (Base-EN)...");
+            const transcriber = await pipeline('automatic-speech-recognition', 'Xenova/whisper-base.en', {
+                quantized: true,
             });
 
-            const output = await transcriber(audioData);
-            extractedText = output.text;
+            console.log("🎤 Transcribing long-form audio content...");
+            const output = await transcriber(audioData, {
+                chunk_length_s: 30,
+                stride_length_s: 5,
+                return_timestamps: true,
+            });
 
-            fs.unlink(tempWavPath).catch(() => { }); // Cleanup Temp Wav
-
-            if (!extractedText.trim()) extractedText = "[Audio track contained no easily detectable speech.]";
+            transcribedChunks = output.chunks || [{ text: output.text }];
+            
+            fs.unlink(tempWavPath).catch(() => { });
         } catch (mlErr) {
-            console.error("Local ML Offline Inference Error:", mlErr);
-            extractedText += `\n[System Error: The offline local JS AI engine could not boot correctly. Details: ${mlErr.message}]\n`;
+            console.error("Local ML Inference Error:", mlErr);
+            transcribedChunks = [{ text: `[System Note: Local transcription had an issue. Error: ${mlErr.message}]` }];
         }
 
-        const notes = `Offline Audio Transcription Report\n\nAudio Source: ${file.originalName}\nStatus: Transcribed Locally (Zero Paid API Keys Used)\n\n\nAI Transcript Output:\n\n${extractedText}`;
+        const transcriptionHtml = transcribedChunks.map(c => {
+            const time = c.timestamp ? `[${Math.floor(c.timestamp[0])}s]` : "";
+            return `<div style="margin-bottom: 20px; display: flex; gap: 20px; align-items: flex-start;">
+                <span style="color: #6366f1; font-weight: 600; font-size: 13px; min-width: 60px; padding-top: 4px;">${time}</span>
+                <p style="margin: 0; color: #1f2937; line-height: 1.6; font-size: 15px;">${c.text.trim()}</p>
+            </div>`;
+        }).join("");
+
+        const browser = await getBrowser();
+        const page = await browser.newPage();
+
+        await page.setContent(`
+            <html>
+            <head>
+                <style>
+                    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap');
+                    body { font-family: 'Outfit', sans-serif; padding: 60px; background: #fff; color: #111; }
+                    .header { border-bottom: 2px solid #f3f4f6; padding-bottom: 30px; margin-bottom: 40px; }
+                    .badge { display: inline-block; background: #eeefff; color: #4f46e5; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; margin-bottom: 10px; }
+                    h1 { font-size: 28px; margin: 0; color: #111827; }
+                    .meta { color: #6b7280; font-size: 14px; margin-top: 8px; }
+                    .content { margin-top: 40px; }
+                    .footer { margin-top: 60px; border-top: 1px solid #f3f4f6; padding-top: 20px; font-size: 12px; color: #9ca3af; text-align: center; }
+                </style>
+            </head>
+            <body>
+                <div class="header">
+                    <span class="badge">Professional Transcript</span>
+                    <h1>Audio Transcription Report</h1>
+                    <div class="meta">Source File: ${file.originalName} • Processed Locally (Zero Data Leak) • AI Analyzed</div>
+                </div>
+                <div class="content">
+                    ${transcriptionHtml || "<p>No standard speech detected in the audio file.</p>"}
+                </div>
+                <div class="footer">
+                    Generated by Offline Audio-to-PDF Converter Tool • Private Local AI Analysis
+                </div>
+            </body>
+            </html>
+        `);
 
         const outputPath = path.join(__dirname, "../outputs", `transcript-${Date.now()}.pdf`);
-        const doc = new PDFDocument({ margin: 50 });
-        const stream = fs.createWriteStream(outputPath);
-        doc.pipe(stream);
-        doc.fontSize(16).text(`Offline Audio Processing (${path.extname(file.originalName)})`).moveDown();
-        doc.fontSize(12).text(notes);
-        doc.end();
+        await page.pdf({
+            path: outputPath,
+            format: "A4",
+            printBackground: true,
+            margin: { top: '20px', bottom: '20px', left: '20px', right: '20px' }
+        });
+        await browser.close();
 
-        await new Promise((resolve) => stream.on("finish", resolve));
-
-        const originalBase = path.parse(file.originalName).name;
-        const pdfFile = await createFileRecord(req, `${originalBase}_transcript.pdf`, outputPath, "application/pdf", "convert-audio-to-pdf");
-        res.json({ success: true, message: "Audio processed securely (Offline AI)", file: pdfFile });
+        const pdfFile = await createFileRecord(req, file.originalName.replace(/\.[^/.]+$/, "") + "_transcript.pdf", outputPath, "application/pdf", "convert-audio-to-pdf");
+        res.json({ success: true, message: "Audio processed securely into a premium transcript PDF", file: pdfFile });
     } catch (error) {
         console.error("Audio to PDF error:", error);
         res.status(500).json({ error: "Conversion failed", details: error.message });
