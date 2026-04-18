@@ -11,7 +11,7 @@ const File = require("../models/File");
  */
 exports.generatePdfFromText = async (req, res, next) => {
     try {
-        const { text, title = "Speech to Text Export" } = req.body;
+        const { text, title = "Speech to Text Export", description = "" } = req.body;
 
         if (!text) {
             return res.status(400).json({
@@ -26,21 +26,30 @@ exports.generatePdfFromText = async (req, res, next) => {
         // Ensure outputs directory exists
         await fs.ensureDir(path.join(__dirname, "../outputs"));
 
+        const descriptionHtml = description 
+            ? `<div class="description" style="font-size: 14px; color: #64748b; margin-bottom: 30px; font-style: italic; background: #f8fafc; padding: 15px; border-left: 4px solid #3b82f6; border-radius: 4px;">${description}</div>` 
+            : "";
+
         // Construct HTML content for Puppeteer
         const htmlContent = `
             <!DOCTYPE html>
             <html>
             <head>
                 <style>
+                    * {
+                        box-sizing: border-box;
+                    }
                     body {
                         font-family: 'Helvetica', 'Arial', sans-serif;
                         padding: 40px;
                         color: #334155;
                         line-height: 1.6;
+                        max-width: 100%;
+                        overflow-x: hidden;
                     }
                     .header {
                         text-align: center;
-                        margin-bottom: 40px;
+                        margin-bottom: 20px;
                         border-bottom: 2px solid #e2e8f0;
                         padding-bottom: 20px;
                     }
@@ -58,6 +67,10 @@ exports.generatePdfFromText = async (req, res, next) => {
                     .content {
                         font-size: 14px;
                         text-align: justify;
+                        word-wrap: break-word;
+                        white-space: pre-wrap;
+                        overflow-wrap: break-word;
+                        width: 100%;
                     }
                     .footer {
                         position: fixed;
@@ -69,7 +82,12 @@ exports.generatePdfFromText = async (req, res, next) => {
                         color: #94a3b8;
                         padding: 20px;
                     }
-                    p { margin-bottom: 15px; }
+                    p { 
+                        margin-bottom: 15px; 
+                        word-wrap: break-word;
+                        white-space: pre-wrap; 
+                        max-width: 100%;
+                    }
                     h1 { color: #1e293b; font-size: 20px; }
                     h2 { color: #334155; font-size: 18px; }
                     h3 { color: #475569; font-size: 16px; }
@@ -82,6 +100,7 @@ exports.generatePdfFromText = async (req, res, next) => {
                     <div class="title">${title}</div>
                     <div class="date">Generated on ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}</div>
                 </div>
+                ${descriptionHtml}
                 <div class="content">
                     ${text}
                 </div>

@@ -9,6 +9,8 @@ const googleTTS = require("google-tts-api");
 const File = require("../models/File");
 const JSZip = require("jszip");
 
+let cachedTranscriber = null;
+
 const resolveFilePath = (filePath) => path.isAbsolute(filePath) ? filePath : path.join(__dirname, "..", filePath);
 
 async function createFileRecord(req, originalName, outputPath, mimeType, operation) {
@@ -727,6 +729,127 @@ exports.videoToPdf = async (req, res) => {
     } catch (error) {
         console.error("Video to PDF error:", error);
         res.status(500).json({ error: "Conversion failed", details: error.message });
+    }
+};
+
+exports.transcribeFile = async (req, res) => {
+    try {
+        const { fileId } = req.body;
+        const file = await File.findById(fileId);
+        if (!file) return res.status(404).json({ error: "File not found" });
+
+        const safePath = resolveFilePath(file.path);
+        let textResult = "";
+
+        try {
+            console.log("🚀 Initializing Premium Offline Audio Transcriber for raw text...");
+
+            const ffmpeg = require('fluent-ffmpeg');
+            const ffmpegPath = require('ffmpeg-static');
+            ffmpeg.setFfmpegPath(ffmpegPath);
+
+            const tempWavPath = path.join(__dirname, "../outputs", `temp-transcribe-${Date.now()}.wav`);
+            await new Promise((resolve, reject) => {
+                ffmpeg(safePath)
+                    .format('wav')
+                    .audioFrequency(16000)
+                    .audioChannels(1)
+                    .on('end', resolve)
+                    .on('error', reject)
+                    .save(tempWavPath);
+            });
+
+            const { WaveFile } = require('wavefile');
+            const buffer = await fs.readFile(tempWavPath);
+            const wav = new WaveFile(buffer);
+            wav.toBitDepth('32f');
+            let audioData = wav.getSamples();
+            if (Array.isArray(audioData)) audioData = audioData[0];
+
+            const { pipeline } = await import('@xenova/transformers');
+            
+            const transcriber = await pipeline('automatic-speech-recognition', 'Xenova/whisper-base.en', {
+                quantized: true,
+            });
+
+            const output = await transcriber(audioData, {
+                chunk_length_s: 30,
+                stride_length_s: 5,
+                return_timestamps: false,
+            });
+
+            textResult = output.text || "";
+            
+            fs.unlink(tempWavPath).catch(() => { });
+        } catch (mlErr) {
+            console.error("Local ML Inference Error:", mlErr);
+            textResult = `[System Note: Local transcription had an issue. Error: ${mlErr.message}]`;
+        }
+
+        res.json({ success: true, text: textResult.trim() });
+    } catch (error) {
+        console.error("Transcribe API error:", error);
+        res.status(500).json({ error: "Transcription failed", details: error.message });
+    }
+};
+
+exports.transcribeChunk = async (req, res) => {
+    try {
+        if (!req.file) return res.status(400).json({ error: "No audio blob provided" });
+        const filePath = req.file.path;
+        
+        let textResult = "";
+
+        try {
+            const ffmpeg = require('fluent-ffmpeg');
+            const ffmpegPath = require('ffmpeg-static');
+            ffmpeg.setFfmpegPath(ffmpegPath);
+
+            const tempWavPath = path.join(__dirname, "../outputs", `temp-chunk-${Date.now()}.wav`);
+            await new Promise((resolve, reject) => {
+                ffmpeg(filePath)
+                    .format('wav')
+                    .audioFrequency(16000)
+                    .audioChannels(1)
+                    .on('end', resolve)
+                    .on('error', reject)
+                    .save(tempWavPath);
+            });
+
+            const { WaveFile } = require('wavefile');
+            const buffer = await fs.readFile(tempWavPath);
+            const wav = new WaveFile(buffer);
+            wav.toBitDepth('32f');
+            let audioData = wav.getSamples();
+            if (Array.isArray(audioData)) audioData = audioData[0];
+
+            if (!cachedTranscriber) {
+                const { pipeline } = await import('@xenova/transformers');
+                cachedTranscriber = await pipeline('automatic-speech-recognition', 'Xenova/whisper-base.en', {
+                    quantized: true,
+                });
+            }
+
+            const output = await cachedTranscriber(audioData, {
+                chunk_length_s: 30,
+                stride_length_s: 5,
+                return_timestamps: false,
+            });
+
+            textResult = output.text || "";
+            
+            fs.unlink(tempWavPath).catch(() => {});
+        } catch (mlErr) {
+            console.error("Local Chunk Inference Error:", mlErr);
+            textResult = "";
+        } finally {
+            fs.unlink(filePath).catch(() => {});
+        }
+
+        res.json({ success: true, text: textResult.trim() });
+    } catch (error) {
+        console.error("Transcribe Chunk error:", error);
+        res.status(500).json({ error: "Transcription failed", details: error.message });
     }
 };
 

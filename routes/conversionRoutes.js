@@ -3,6 +3,8 @@ const router = express.Router();
 const conversionController = require('../controllers/conversionController');
 const extraConversionController = require('../controllers/extraConversionController');
 const { protect } = require('../middleware/authMiddleware'); // Assuming auth exists
+const multer = require('multer');
+const upload = multer({ dest: 'temp/' });
 
 // Conversion routes
 // Add 'protect' middleware if authentication is required, or leave open for guests if handled in controller
@@ -22,5 +24,7 @@ router.post('/pdf-to-csv', extraConversionController.pdfToCsv);
 router.post('/pdf-to-speech', extraConversionController.pdfToSpeech);
 router.post('/video-to-pdf', extraConversionController.videoToPdf);
 router.post('/audio-to-pdf', extraConversionController.audioToPdf);
+router.post('/transcribe-file', extraConversionController.transcribeFile);
+router.post('/transcribe-chunk', upload.single('audio'), extraConversionController.transcribeChunk);
 
 module.exports = router;
