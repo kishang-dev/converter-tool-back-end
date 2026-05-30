@@ -27,4 +27,10 @@ router.post('/audio-to-pdf', extraConversionController.audioToPdf);
 router.post('/transcribe-file', extraConversionController.transcribeFile);
 router.post('/transcribe-chunk', upload.single('audio'), extraConversionController.transcribeChunk);
 
+// YAML ↔ JSON & CSV ↔ JSON Converters
+router.post('/yaml-to-json', conversionController.yamlToJson);
+router.post('/json-to-yaml', conversionController.jsonToYaml);
+router.post('/csv-to-json', conversionController.csvToJson);
+router.post('/json-to-csv', conversionController.jsonToCsv);
+
 module.exports = router;

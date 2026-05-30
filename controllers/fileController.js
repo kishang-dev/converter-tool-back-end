@@ -10,6 +10,7 @@ const {
     pdfToExcel,
     pdfToImage,
     protectPDF,
+    unlockPDF,
 } = require("../utils/pdfUtils");
 
 exports.uploadFiles = async (req, res) => {
@@ -259,6 +260,33 @@ exports.protectFile = async (req, res) => {
         res.json({ success: true, message: "PDF protected successfully", file: protectedFile });
     } catch (error) {
         res.status(500).json({ error: "Protection failed", details: error.message });
+    }
+};
+
+exports.unlockFile = async (req, res) => {
+    try {
+        const { fileId, password } = req.body;
+        if (!password) return res.status(400).json({ error: "Password is required" });
+
+        const file = await File.findById(fileId);
+        if (!file) return res.status(404).json({ error: "File not found" });
+
+        const outputPath = await unlockPDF(file.path, password);
+        const unlockedFile = await File.create({
+            filename: path.basename(outputPath),
+            originalName: "unlocked_" + file.originalName,
+            path: outputPath,
+            size: (await fs.stat(outputPath)).size,
+            mimeType: "application/pdf",
+            operation: "unlock",
+            status: "completed",
+            user: req.user ? req.user._id : undefined,
+            guestId: req.user ? undefined : req.headers['x-guest-id']
+        });
+
+        res.json({ success: true, message: "PDF unlocked successfully", file: unlockedFile });
+    } catch (error) {
+        res.status(500).json({ error: "Unlock failed", details: error.message });
     }
 };
 

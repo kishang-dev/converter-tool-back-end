@@ -362,3 +362,130 @@ exports.pdfToHtml = async (req, res) => {
         res.status(500).json({ error: "Conversion failed", details: error.message });
     }
 };
+
+// YAML to JSON
+exports.yamlToJson = async (req, res) => {
+    try {
+        const { yaml } = req.body;
+        if (!yaml) return res.status(400).json({ error: "YAML content is required" });
+
+        const yamlParser = require("js-yaml");
+        const parsed = yamlParser.load(yaml);
+        res.json({ success: true, json: JSON.stringify(parsed, null, 2) });
+    } catch (error) {
+        console.error("YAML to JSON error:", error);
+        res.status(400).json({ error: "Invalid YAML content", details: error.message });
+    }
+};
+
+// JSON to YAML
+exports.jsonToYaml = async (req, res) => {
+    try {
+        const { json } = req.body;
+        if (!json) return res.status(400).json({ error: "JSON content is required" });
+
+        const yamlParser = require("js-yaml");
+        const obj = typeof json === "string" ? JSON.parse(json) : json;
+        const yaml = yamlParser.dump(obj);
+        res.json({ success: true, yaml });
+    } catch (error) {
+        console.error("JSON to YAML error:", error);
+        res.status(400).json({ error: "Invalid JSON content", details: error.message });
+    }
+};
+
+// CSV to JSON
+exports.csvToJson = async (req, res) => {
+    try {
+        const { csv } = req.body;
+        if (!csv) return res.status(400).json({ error: "CSV content is required" });
+
+        // Simple CSV parser that handles quotes and commas
+        const lines = csv.split(/\r?\n/);
+        if (lines.length === 0 || !lines[0].trim()) {
+            return res.json({ success: true, json: "[]" });
+        }
+
+        const parseCsvLine = (line) => {
+            const result = [];
+            let current = "";
+            let inQuotes = false;
+            for (let i = 0; i < line.length; i++) {
+                const char = line[i];
+                if (char === '"') {
+                    inQuotes = !inQuotes;
+                } else if (char === ',' && !inQuotes) {
+                    result.push(current.trim());
+                    current = "";
+                } else {
+                    current += char;
+                }
+            }
+            result.push(current.trim());
+            return result;
+        };
+
+        const headers = parseCsvLine(lines[0]);
+        const data = [];
+
+        for (let i = 1; i < lines.length; i++) {
+            if (!lines[i].trim()) continue;
+            const values = parseCsvLine(lines[i]);
+            const obj = {};
+            headers.forEach((header, index) => {
+                let val = values[index] !== undefined ? values[index] : "";
+                // remove surrounding quotes if present
+                if (val.startsWith('"') && val.endsWith('"')) {
+                    val = val.substring(1, val.length - 1);
+                }
+                obj[header] = val;
+            });
+            data.push(obj);
+        }
+
+        res.json({ success: true, json: JSON.stringify(data, null, 2) });
+    } catch (error) {
+        console.error("CSV to JSON error:", error);
+        res.status(400).json({ error: "Failed to parse CSV", details: error.message });
+    }
+};
+
+// JSON to CSV
+exports.jsonToCsv = async (req, res) => {
+    try {
+        const { json } = req.body;
+        if (!json) return res.status(400).json({ error: "JSON content is required" });
+
+        const data = typeof json === "string" ? JSON.parse(json) : json;
+        if (!Array.isArray(data)) {
+            return res.status(400).json({ error: "JSON content must be a JSON array of objects" });
+        }
+
+        if (data.length === 0) {
+            return res.json({ success: true, csv: "" });
+        }
+
+        // Get headers from first object keys
+        const headers = Object.keys(data[0]);
+        const csvRows = [headers.join(",")];
+
+        for (const row of data) {
+            const values = headers.map(header => {
+                let val = row[header];
+                if (val === undefined || val === null) val = "";
+                val = String(val);
+                // Escape quotes and wrap in quotes if contains comma/quotes
+                if (val.includes(",") || val.includes('"') || val.includes("\n")) {
+                    val = `"${val.replace(/"/g, '""')}"`;
+                }
+                return val;
+            });
+            csvRows.push(values.join(","));
+        }
+
+        res.json({ success: true, csv: csvRows.join("\n") });
+    } catch (error) {
+        console.error("JSON to CSV error:", error);
+        res.status(400).json({ error: "Failed to convert to CSV", details: error.message });
+    }
+};

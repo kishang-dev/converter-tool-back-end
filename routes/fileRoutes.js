@@ -21,6 +21,7 @@ router.post("/split", checkUsage, fileController.splitFile);
 router.post("/rotate", checkUsage, fileController.rotateFile);
 router.post("/compress", checkUsage, fileController.compressFile);
 router.post("/protect", checkUsage, fileController.protectFile);
+router.post("/unlock", checkUsage, fileController.unlockFile);
 router.post("/edit", checkUsage, fileController.editFile);
 router.post("/:id/add-page", checkUsage, fileController.addPage);
 

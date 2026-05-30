@@ -601,6 +601,7 @@ module.exports = {
   extractPageText,
   modifyPageContent,
   addBlankPage,
+  unlockPDF,
 };
 
 // Extract text with coordinates from a specific page
@@ -1025,4 +1026,32 @@ async function assemblePDF(filePath, pageSpecs) {
   await fs.writeFile(outputPath, newPdfBytes);
 
   return outputPath;
+}
+
+// Unlock a password-protected PDF
+async function unlockPDF(filePath, password) {
+  try {
+    const { decryptPDF } = require("@pdfsmaller/pdf-decrypt");
+    const fileBytes = await fs.readFile(filePath);
+    
+    // Validate PDF header
+    const header = fileBytes.subarray(0, 5).toString();
+    if (header !== "%PDF-") {
+      throw new Error("Invalid PDF file: No PDF header found");
+    }
+
+    const decryptedBytes = await decryptPDF(new Uint8Array(fileBytes), password);
+
+    const outputPath = path.join(
+      __dirname,
+      "../outputs",
+      `unlocked-${Date.now()}.pdf`
+    );
+    await fs.writeFile(outputPath, Buffer.from(decryptedBytes));
+
+    return outputPath;
+  } catch (error) {
+    console.error("unlockPDF error:", error);
+    throw new Error("Failed to decrypt PDF. Please check if the password is correct.");
+  }
 }
