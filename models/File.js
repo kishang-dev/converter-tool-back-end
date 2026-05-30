@@ -69,6 +69,10 @@ const fileSchema = new mongoose.Schema(
       enum: ["pending", "processing", "completed", "failed"],
       default: "completed",
     },
+    isHiddenFromTools: {
+      type: Boolean,
+      default: false
+    }
   },
   {
     timestamps: true,

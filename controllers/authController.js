@@ -37,6 +37,8 @@ exports.register = async (req, res) => {
                 _id: user.id,
                 name: user.name,
                 email: user.email,
+                phone: user.phone,
+                avatar: user.avatar,
                 token: generateToken(user.id),
             });
         } else {
@@ -64,6 +66,8 @@ exports.login = async (req, res) => {
                 _id: user.id,
                 name: user.name,
                 email: user.email,
+                phone: user.phone,
+                avatar: user.avatar,
                 token: generateToken(user.id),
             });
         } else {
@@ -168,5 +172,37 @@ exports.resetPassword = async (req, res) => {
     } catch (error) {
         console.error(error);
         res.status(500).json({ success: false, error: 'Server Error' });
+    }
+};
+
+// @desc    Update user profile
+// @route   PUT /api/auth/update
+// @access  Private
+exports.updateUser = async (req, res) => {
+    try {
+        const { name, phone } = req.body;
+        
+        // Find user
+        const user = await User.findById(req.user._id);
+        if (!user) {
+            return res.status(404).json({ success: false, error: 'User not found' });
+        }
+
+        // Update fields
+        if (name) user.name = name;
+        if (phone !== undefined) user.phone = phone;
+        if (req.file) {
+            user.avatar = `/uploads/${req.file.filename}`;
+        }
+
+        await user.save();
+
+        res.status(200).json({
+            success: true,
+            data: user
+        });
+    } catch (error) {
+        console.error("Update error:", error);
+        res.status(500).json({ success: false, error: 'Server Error: ' + error.message });
     }
 };

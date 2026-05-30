@@ -57,10 +57,28 @@ exports.getAllFiles = async (req, res) => {
             return res.json({ success: true, files: [] });
         }
 
+        if (req.query.activeOnly === 'true') {
+            query.isHiddenFromTools = { $ne: true };
+        }
+
         const files = await File.find(query).sort({ createdAt: -1 }).limit(50);
         res.json({ success: true, files });
     } catch (error) {
         res.status(500).json({ error: "Failed to fetch files", details: error.message });
+    }
+};
+
+exports.hideFile = async (req, res) => {
+    try {
+        const file = await File.findById(req.params.id);
+        if (!file) return res.status(404).json({ error: "File not found" });
+
+        file.isHiddenFromTools = true;
+        await file.save();
+
+        res.json({ success: true, message: "File hidden successfully" });
+    } catch (error) {
+        res.status(500).json({ error: "Hide failed", details: error.message });
     }
 };
 

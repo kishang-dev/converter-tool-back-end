@@ -15,6 +15,14 @@ const userSchema = new mongoose.Schema({
             'Please add a valid email'
         ]
     },
+    phone: {
+        type: String,
+        default: ''
+    },
+    avatar: {
+        type: String,
+        default: ''
+    },
     password: {
         type: String,
         required: [true, 'Please add a password'],
@@ -49,9 +57,9 @@ userSchema.methods.getResetPasswordToken = function () {
 };
 
 // Encrypt password using bcrypt
-userSchema.pre('save', async function (next) {
+userSchema.pre('save', async function () {
     if (!this.isModified('password')) {
-        next();
+        return;
     }
 
     const salt = await bcrypt.genSalt(10);

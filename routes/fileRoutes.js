@@ -14,6 +14,7 @@ router.get("/:id/previews", fileController.getPreviewImages);
 router.get("/:id/page/:pageIndex/text", fileController.getPageText);
 router.post("/:id/page/:pageIndex/save", checkUsage, fileController.savePageContent);
 router.delete("/:id", fileController.deleteFile);
+router.put("/:id/hide", fileController.hideFile);
 
 // PDF Operations
 router.post("/merge", checkUsage, fileController.mergeFiles);
