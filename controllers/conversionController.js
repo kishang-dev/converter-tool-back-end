@@ -489,3 +489,32 @@ exports.jsonToCsv = async (req, res) => {
         res.status(400).json({ error: "Failed to convert to CSV", details: error.message });
     }
 };
+
+// HEIC to JPG
+exports.convertHeic = async (req, res) => {
+    try {
+        const { fileId } = req.body;
+        const file = await File.findById(fileId);
+        if (!file) return res.status(404).json({ error: "File not found" });
+
+        const heicConvert = require("heic-convert");
+        const inputBuffer = await fs.readFile(file.path);
+        
+        // Convert HEIC buffer to JPEG buffer
+        const outputBuffer = await heicConvert({
+            buffer: inputBuffer,
+            format: 'JPEG',
+            quality: 0.92
+        });
+
+        const outputPath = path.join(__dirname, "../outputs", `converted-${Date.now()}.jpg`);
+        await fs.writeFile(outputPath, outputBuffer);
+
+        const jpgFile = await createFileRecord(req, file.originalName.replace(/\.heic$/i, ".jpg"), outputPath, "image/jpeg", "convert-heic-to-jpg");
+
+        res.json({ success: true, message: "HEIC converted to JPG successfully", file: jpgFile });
+    } catch (error) {
+        console.error("HEIC to JPG error:", error);
+        res.status(500).json({ error: "HEIC conversion failed", details: error.message });
+    }
+};

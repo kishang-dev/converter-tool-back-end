@@ -32,5 +32,6 @@ router.post('/yaml-to-json', conversionController.yamlToJson);
 router.post('/json-to-yaml', conversionController.jsonToYaml);
 router.post('/csv-to-json', conversionController.csvToJson);
 router.post('/json-to-csv', conversionController.jsonToCsv);
+router.post('/heic-to-jpg', conversionController.convertHeic);
 
 module.exports = router;
