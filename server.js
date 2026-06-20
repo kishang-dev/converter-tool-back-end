@@ -60,7 +60,8 @@ app.use(helmet({
 app.use(morgan("dev"));
 
 // Handle ALL preflight requests first — before body parsers or auth checks
-app.options("*", cors(corsOptions));
+// NOTE: Using regex instead of "*" — Express 5 (path-to-regexp v8) broke the "*" wildcard
+app.options(/.*/, cors(corsOptions));
 
 // Apply CORS to every request
 app.use(cors(corsOptions));
