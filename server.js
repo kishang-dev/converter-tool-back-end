@@ -21,20 +21,52 @@ connectDB();
 
 const app = express();
 
-// Middleware
+// ─── CORS Configuration ──────────────────────────────────────────────────────
+const allowedOrigins = [
+  // Local development
+  /^http:\/\/localhost:\d+$/,
+  /^http:\/\/127\.0\.0\.1:\d+$/,
+  // Production / staging — add your deployed frontend domain here
+  // e.g. "https://yourdomain.com"
+];
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, curl, Postman, server-to-server)
+    if (!origin) return callback(null, true);
+
+    const isAllowed = allowedOrigins.some((pattern) =>
+      typeof pattern === "string" ? pattern === origin : pattern.test(origin)
+    );
+
+    if (isAllowed) {
+      callback(null, true);
+    } else {
+      // In production you may want to reject unknown origins.
+      // For now we allow all so AWS → local and vice-versa both work.
+      callback(null, true);
+    }
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Guest-ID"],
+  optionsSuccessStatus: 200, // Some legacy browsers (IE11) choke on 204
+};
+
+// ─── Middleware ───────────────────────────────────────────────────────────────
 app.use(helmet({
   crossOriginResourcePolicy: false,
 }));
 app.use(morgan("dev"));
+
+// Handle ALL preflight requests first — before body parsers or auth checks
+app.options("*", cors(corsOptions));
+
+// Apply CORS to every request
+app.use(cors(corsOptions));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-app.use(cors({
-  origin: true, // Allow all origins reflected
-  credentials: true,
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Guest-ID"]
-}));
 // Define Directories
 const uploadDir = path.join(__dirname, "uploads");
 const outputDir = path.join(__dirname, "outputs");
