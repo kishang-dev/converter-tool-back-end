@@ -9,7 +9,7 @@ const connectDB = async () => {
         console.error("❌ MongoDB Connection Error:", err.message);
         console.error("💡 Make sure MongoDB is running on your system");
         console.error("💡 Check your MONGODB_URI in .env file");
-        process.exit(1);
+        // process.exit(1); // Removed to allow server to continue without DB
     }
 };
 

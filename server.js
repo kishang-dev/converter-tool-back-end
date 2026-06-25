@@ -92,6 +92,7 @@ const svgRoutes = require("./routes/svgRoutes");
 const speechToPdfRoutes = require("./routes/speechToPdfRoutes");
 const conversionRoutes = require("./routes/conversionRoutes");
 const chartRoutes = require("./routes/chartRoutes");
+const developerToolsRoutes = require("./routes/developerToolsRoutes");
 
 // Mount Routes
 app.use("/api/files", fileRoutes);
@@ -104,6 +105,7 @@ app.use("/api/auth", require("./routes/authRoutes"));
 app.use("/api/resumes", require("./routes/resumeRoutes"));
 app.use("/api/charts", chartRoutes);
 app.use("/api/support", require("./routes/supportRoutes"));
+app.use("/api/devtools", developerToolsRoutes);
 
 // Health Check Route
 app.get("/health", (req, res) => {
