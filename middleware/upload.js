@@ -41,28 +41,110 @@ const imageFilter = (req, file, cb) => {
   }
 };
 
+const documentFilter = (req, file, cb) => {
+  const allowedMimes = [
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "application/vnd.ms-powerpoint",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "text/html",
+    "text/plain",
+    "text/csv",
+    "audio/mpeg",
+    "audio/wav",
+    "video/mp4",
+    "video/x-msvideo",
+    "image/jpeg",
+    "image/jpg",
+    "image/png",
+    "image/webp",
+    "image/svg+xml"
+  ];
+  const allowedExts = [
+    '.pdf', '.xlsx', '.xls', '.pptx', '.ppt', '.doc', '.docx',
+    '.html', '.htm', '.txt', '.csv', '.mp3', '.wav', '.mp4',
+    '.avi', '.jpg', '.jpeg', '.png', '.webp', '.svg'
+  ];
+  const ext = path.extname(file.originalname).toLowerCase();
+
+  if (allowedMimes.includes(file.mimetype) || allowedExts.includes(ext)) {
+    cb(null, true);
+  } else {
+    cb(null, true); // Fallback: allow upload and fail in controller if needed
+  }
+};
+
+// Re-implementing strict document filter
+const strictDocumentFilter = (req, file, cb) => {
+  const allowedMimes = [
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "application/vnd.ms-powerpoint",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "text/html",
+    "text/plain",
+    "text/csv",
+    "audio/mpeg",
+    "audio/wav",
+    "video/mp4",
+    "video/x-msvideo",
+    "image/jpeg",
+    "image/jpg",
+    "image/png",
+    "image/webp",
+    "image/svg+xml"
+  ];
+  const allowedExts = [
+    '.pdf', '.xlsx', '.xls', '.pptx', '.ppt', '.doc', '.docx',
+    '.html', '.htm', '.txt', '.csv', '.mp3', '.wav', '.mp4',
+    '.avi', '.jpg', '.jpeg', '.png', '.webp', '.svg', '.webm', '.m4a'
+  ];
+  const ext = path.extname(file.originalname).toLowerCase();
+
+  if (allowedMimes.includes(file.mimetype) || allowedExts.includes(ext)) {
+    cb(null, true);
+  } else {
+    cb(new Error(`File type not allowed: ${file.mimetype}`), false);
+  }
+}
+
+
 // Default upload (any file, no filter)
 const upload = multer({
   storage,
-  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB limit
+  limits: { fileSize: 1024 * 1024 * 1024 }, // 1GB limit
 });
 
 // PDF specific upload
 const pdfUpload = multer({
   storage,
   fileFilter: pdfFilter,
-  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB limit
+  limits: { fileSize: 1024 * 1024 * 1024 }, // 1GB limit
 });
 
 // Image specific upload
 const imageUpload = multer({
   storage,
   fileFilter: imageFilter,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+  limits: { fileSize: 200 * 1024 * 1024 }, // 200MB limit for bulk image processing
+});
+
+// Document specific upload
+const documentUpload = multer({
+  storage,
+  fileFilter: strictDocumentFilter,
+  limits: { fileSize: 1024 * 1024 * 1024 }, // 1GB limit
 });
 
 module.exports = {
   upload,
   pdfUpload,
-  imageUpload
+  imageUpload,
+  documentUpload
 };

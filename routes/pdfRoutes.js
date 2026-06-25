@@ -4,8 +4,10 @@ const router = express.Router();
 const { pdfUpload } = require("../middleware/upload");
 const pdfController = require("../controllers/pdfController");
 
+const { checkUsage } = require("../middleware/authMiddleware");
+
 // PDF upload route
-router.post("/upload", pdfUpload.single("pdf"), pdfController.uploadPdf);
+router.post("/upload", checkUsage, pdfUpload.single("pdf"), pdfController.uploadPdf);
 
 // Get PDF general content (text, html, metadata)
 router.get("/pdf/:id", pdfController.getPdfContent);

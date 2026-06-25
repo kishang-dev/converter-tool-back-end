@@ -4,6 +4,13 @@ const mongoose = require("mongoose");
 // --- Mongoose Schema for OCR Data ---
 const OcrDataSchema = new mongoose.Schema({
   imageId: { type: String, required: true, unique: true },
+  user: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  guestId: {
+    type: String
+  },
   originalFilename: { type: String, required: true },
   uploadDate: { type: Date, default: Date.now },
   fullText: { type: String, required: true },

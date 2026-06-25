@@ -21,38 +21,53 @@ connectDB();
 
 const app = express();
 
-// Middleware
+// ─── CORS Configuration ──────────────────────────────────────────────────────
+const allowedOrigins = [
+  // Local development
+  /^http:\/\/localhost:\d+$/,
+  /^http:\/\/127\.0\.0\.1:\d+$/,
+  // Production / staging — add your deployed frontend domain here
+  // e.g. "https://yourdomain.com"
+];
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, curl, Postman, server-to-server)
+    if (!origin) return callback(null, true);
+
+    const isAllowed = allowedOrigins.some((pattern) =>
+      typeof pattern === "string" ? pattern === origin : pattern.test(origin)
+    );
+
+    if (isAllowed) {
+      callback(null, true);
+    } else {
+      // In production you may want to reject unknown origins.
+      // For now we allow all so AWS → local and vice-versa both work.
+      callback(null, true);
+    }
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Guest-ID"],
+  optionsSuccessStatus: 200, // Some legacy browsers (IE11) choke on 204
+};
+
+// ─── Middleware ───────────────────────────────────────────────────────────────
 app.use(helmet({
   crossOriginResourcePolicy: false,
 }));
 app.use(morgan("dev"));
+
+// Handle ALL preflight requests first — before body parsers or auth checks
+// NOTE: Using regex instead of "*" — Express 5 (path-to-regexp v8) broke the "*" wildcard
+app.options(/.*/, cors(corsOptions));
+
+// Apply CORS to every request
+app.use(cors(corsOptions));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-const allowedOrigins = [
-  process.env.FRONTEND_URL,
-  "https://rad-twilight-1dd94f.netlify.app",
-  "http://localhost:3000",
-  "http://localhost:5173", // Vite default
-  "http://localhost:5000"
-].filter(Boolean);
-
-app.use(cors({
-  origin: function (origin, callback) {
-    // allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-
-    if (allowedOrigins.indexOf(origin) === -1) {
-      console.log(`CORS blocked for origin: ${origin}`);
-      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-      return callback(new Error(msg), false);
-    }
-    return callback(null, true);
-  },
-  credentials: true,
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
-  allowedHeaders: ["Content-Type", "Authorization"]
-}));
 // Define Directories
 const uploadDir = path.join(__dirname, "uploads");
 const outputDir = path.join(__dirname, "outputs");
@@ -75,6 +90,9 @@ const pdfRoutes = require("./routes/pdfRoutes");
 const ocrRoutes = require("./routes/ocrRoutes");
 const svgRoutes = require("./routes/svgRoutes");
 const speechToPdfRoutes = require("./routes/speechToPdfRoutes");
+const conversionRoutes = require("./routes/conversionRoutes");
+const chartRoutes = require("./routes/chartRoutes");
+const developerToolsRoutes = require("./routes/developerToolsRoutes");
 
 // Mount Routes
 app.use("/api/files", fileRoutes);
@@ -82,6 +100,12 @@ app.use("/api", pdfRoutes);
 app.use("/api", ocrRoutes);
 app.use("/api", svgRoutes);
 app.use("/api", speechToPdfRoutes);
+app.use("/api", conversionRoutes);
+app.use("/api/auth", require("./routes/authRoutes"));
+app.use("/api/resumes", require("./routes/resumeRoutes"));
+app.use("/api/charts", chartRoutes);
+app.use("/api/support", require("./routes/supportRoutes"));
+app.use("/api/devtools", developerToolsRoutes);
 
 // Health Check Route
 app.get("/health", (req, res) => {

@@ -6,6 +6,13 @@ const fileSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    guestId: {
+      type: String
+    },
     originalName: {
       type: String,
       required: true,
@@ -35,7 +42,25 @@ const fileSchema = new mongoose.Schema(
         "image",
         "convert-image",
         "edit",
-        "content-edit"
+        "content-edit",
+        "convert-pdf-to-pptx",
+        "convert-excel-to-pdf",
+        "convert-ppt-to-pdf",
+        "convert-html-to-pdf",
+        "convert-pdf-to-text",
+        "convert-pdf-to-html",
+        "convert-word-to-pdf",
+        "convert-image-to-png",
+        "convert-image-to-jpg",
+        "convert-image-to-jpeg",
+        "convert-image-to-webp",
+        "convert-text-to-pdf",
+        "convert-csv-to-pdf",
+        "convert-pdf-to-csv",
+        "convert-video-to-pdf",
+        "convert-audio-to-pdf",
+        "convert-image",
+        "convert-pdf-to-speech"
       ],
       default: "upload",
     },
@@ -44,6 +69,10 @@ const fileSchema = new mongoose.Schema(
       enum: ["pending", "processing", "completed", "failed"],
       default: "completed",
     },
+    isHiddenFromTools: {
+      type: Boolean,
+      default: false
+    }
   },
   {
     timestamps: true,

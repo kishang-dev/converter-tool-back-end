@@ -1,46 +1,65 @@
 const mongoose = require("mongoose");
 
-// Enhanced PDF schema to store more data including OCR text
 const pdfSchema = new mongoose.Schema({
-  fileName: String,
-  textContent: String, // Pure overall text content from pdf-parse (now includes OCR text)
-  htmlContent: String, // HTML formatted content derived from richer data
-  originalFile: Buffer, // Original PDF file binary
-  pages: [
-    {
-      pageNumber: Number,
-      content: String, // Text content specific to this page (from pdf.js-extract + OCR)
-      textItems: Array, // Array of {x, y, str, fontName, height, etc.}
-      imageData: Buffer, // Page as image (PNG from pdf-poppler)
-      ocrText: { type: String, default: "" }, // OCR extracted text from page image
-    },
-  ],
+  fileName: {
+    type: String,
+    required: true,
+  },
+  originalFile: {
+    type: Buffer, // Store original PDF buffer
+    select: false, // Don't return by default
+  },
+
+  // Ownership
+  user: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  guestId: {
+    type: String
+  },
+
   metadata: {
-    totalPages: Number,
     title: String,
     author: String,
     subject: String,
     keywords: String,
-    creator: String,
     producer: String,
-    creationDate: { type: Date, default: null },
-    modificationDate: { type: Date, default: null },
-    fileSize: Number,
+    creationDate: Date,
+    modificationDate: Date,
+    totalPages: Number,
+    fileSize: Number, // in bytes
   },
+  textContent: {
+    type: String, // Allow storing full text content
+  },
+  htmlContent: {
+    type: String, // Allow storing basic HTML structure
+  },
+
+  // Array of page objects
+  pages: [
+    {
+      pageNumber: { type: Number, required: true },
+      textItems: [], // Raw text items with positions if needed
+      content: String, // Plain text content of the page
+      imageData: Buffer, // Store page image (png) buffer
+      width: Number,
+      height: Number,
+      ocrText: String, // Store OCR text for this page
+    },
+  ],
+
   processingStatus: {
     type: String,
-    enum: ["processing", "completed", "failed"],
-    default: "processing",
+    enum: ["pending", "processed", "failed", "processing"],
+    default: "pending",
   },
-  createdAt: { type: Date, default: Date.now },
+  errorMessage: String,
+  createdAt: {
+    type: Date,
+    default: Date.now,
+  },
 });
 
-// Index for better search performance
-pdfSchema.index({ fileName: 1 });
-pdfSchema.index({ "metadata.title": 1 });
-pdfSchema.index({ processingStatus: 1 });
-pdfSchema.index({ "pages.ocrText": "text" }); // Text index for OCR search
-
-const Pdf = mongoose.model("Pdf", pdfSchema);
-
-module.exports = Pdf;
+module.exports = mongoose.model("Pdf", pdfSchema);

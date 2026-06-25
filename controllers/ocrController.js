@@ -17,6 +17,15 @@ const uploadAndOcr = async (req, res, next) => {
       originalFilename
     );
 
+    // Update ownership logic
+    const OcrData = require("../models/OcrData");
+    const ocrRecord = await OcrData.findOne({ imageId: extractedDataWithStats.imageId });
+    if (ocrRecord) {
+      if (req.user) ocrRecord.user = req.user._id;
+      else if (req.headers['x-guest-id']) ocrRecord.guestId = req.headers['x-guest-id'];
+      await ocrRecord.save();
+    }
+
     res.status(200).json({
       message: "OCR successful and data saved to MongoDB!",
       success: true,

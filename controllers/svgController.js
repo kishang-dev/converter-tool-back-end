@@ -72,12 +72,26 @@ exports.convertImageToSVG = async (req, res) => {
             fs.unlinkSync(inputPath);
         }
 
+        const File = require("../models/File");
+        const svgFile = await File.create({
+            filename: outputFilename,
+            originalName: req.file.originalname,
+            path: outputPath,
+            size: (await fs.stat(outputPath)).size,
+            mimeType: "image/svg+xml",
+            operation: "image",
+            status: "completed",
+            user: req.user ? req.user._id : undefined,
+            guestId: req.user ? undefined : req.headers['x-guest-id']
+        });
+
         res.json({
             message: "Image converted to multi-path SVG successfully.",
             svgUrl: `/svg/${outputFilename}`,
             filename: outputFilename,
             paths: paths,
             editUrl: `/editor/${baseFilename}`,
+            fileId: svgFile._id
         });
     } catch (error) {
         console.error("Conversion error:", error);
