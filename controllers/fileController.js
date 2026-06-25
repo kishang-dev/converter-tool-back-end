@@ -64,7 +64,9 @@ exports.getAllFiles = async (req, res) => {
         const files = await File.find(query).sort({ createdAt: -1 }).limit(50);
         res.json({ success: true, files });
     } catch (error) {
-        res.status(500).json({ error: "Failed to fetch files", details: error.message });
+        console.error("Failed to fetch files (DB might be offline):", error.message);
+        // Fail gracefully so the frontend doesn't crash with 500 when offline
+        res.json({ success: true, files: [] });
     }
 };
 

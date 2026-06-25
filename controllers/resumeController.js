@@ -290,6 +290,41 @@ exports.getUserResumes = async (req, res) => {
         const resumes = await Resume.find({ user: req.user.id }).sort('-createdAt');
         res.status(200).json({ success: true, data: resumes });
     } catch (error) {
+        console.error("Failed to fetch resumes (DB might be offline):", error.message);
+        res.json({ success: true, data: [] });
+    }
+};
+
+exports.getResumeById = async (req, res) => {
+    try {
+        const resume = await Resume.findOne({ _id: req.params.id, user: req.user.id });
+        if (!resume) return res.status(404).json({ error: 'Resume not found' });
+        res.status(200).json({ success: true, data: resume });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+exports.updateResume = async (req, res) => {
+    try {
+        let resume = await Resume.findOne({ _id: req.params.id, user: req.user.id });
+        if (!resume) return res.status(404).json({ error: 'Resume not found' });
+        
+        resume = await Resume.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+        res.status(200).json({ success: true, data: resume });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+exports.deleteResume = async (req, res) => {
+    try {
+        const resume = await Resume.findOne({ _id: req.params.id, user: req.user.id });
+        if (!resume) return res.status(404).json({ error: 'Resume not found' });
+        
+        await resume.deleteOne();
+        res.status(200).json({ success: true, message: 'Resume deleted successfully' });
+    } catch (error) {
         res.status(500).json({ error: error.message });
     }
 };

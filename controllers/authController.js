@@ -74,8 +74,8 @@ exports.login = async (req, res) => {
             res.status(401).json({ success: false, error: 'Invalid credentials' });
         }
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ success: false, error: 'Server Error' });
+        console.error("Login Error:", error.message);
+        res.status(500).json({ success: false, error: 'Database is offline or Server Error' });
     }
 };
 
