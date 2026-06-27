@@ -45,6 +45,15 @@ scp -i "$KEY_PATH" -o StrictHostKeyChecking=no \
   "$LOCAL_DIR/package.json" \
   "$HOST:$REMOTE_DIR/package.json"
 
+echo "Uploading package-lock.json and Puppeteer config..."
+scp -i "$KEY_PATH" -o StrictHostKeyChecking=no \
+  "$LOCAL_DIR/package-lock.json" \
+  "$HOST:$REMOTE_DIR/package-lock.json"
+
+scp -i "$KEY_PATH" -o StrictHostKeyChecking=no \
+  "$LOCAL_DIR/.puppeteerrc.cjs" \
+  "$HOST:$REMOTE_DIR/.puppeteerrc.cjs"
+
 # ── 3. Upload all routes ──────────────────────────────────────────────────────
 echo ""
 echo "📤 Uploading routes/..."
@@ -92,6 +101,8 @@ ssh -i "$KEY_PATH" -o StrictHostKeyChecking=no "$HOST" << 'ENDSSH'
 
   echo "📦 Installing dependencies..."
   npm install --omit=dev
+  echo "Installing Chrome for PDF previews..."
+  npx puppeteer browsers install chrome
 
   echo "🔄 Restarting server..."
   # Kill any existing node/nodemon process on port 5000
