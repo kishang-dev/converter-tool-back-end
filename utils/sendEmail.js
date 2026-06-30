@@ -1,26 +1,39 @@
 const nodemailer = require('nodemailer');
 
+/**
+ * Send an email using Gmail App Password (OAuth-free, no SMTP host config needed).
+ *
+ * Required .env variables:
+ *   EMAIL_USER  — Gmail address (e.g. toolbasketai@gmail.com)
+ *   EMAIL_PASS  — Gmail App Password (16-char, spaces allowed)
+ *
+ * @param {Object} options
+ * @param {string} options.email    - Recipient email address
+ * @param {string} options.subject  - Email subject line
+ * @param {string} options.message  - Plain-text body (fallback)
+ * @param {string} [options.html]   - HTML body (optional, overrides plain text)
+ */
 const sendEmail = async (options) => {
     const transporter = nodemailer.createTransport({
-        host: process.env.SMTP_HOST,
-        port: process.env.SMTP_PORT,
+        service: 'gmail',
         auth: {
-            user: process.env.SMTP_EMAIL,
-            pass: process.env.SMTP_PASSWORD,
+            user: process.env.EMAIL_USER,
+            pass: process.env.EMAIL_PASS,
         },
     });
 
-    const message = {
-        from: `${process.env.FROM_NAME} <${process.env.FROM_EMAIL}>`,
+    const mailOptions = {
+        from: `"ToolBasket" <${process.env.EMAIL_USER}>`,
         to: options.email,
         subject: options.subject,
         text: options.message,
-        html: options.html,
+        ...(options.html && { html: options.html }),
     };
 
-    const info = await transporter.sendMail(message);
+    const info = await transporter.sendMail(mailOptions);
+    console.log(`[Email] Sent to ${options.email} — MessageId: ${info.messageId}`);
 
-    console.log('Message sent: %s', info.messageId);
+    return info;
 };
 
 module.exports = sendEmail;
