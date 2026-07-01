@@ -75,6 +75,10 @@ exports.login = async (req, res) => {
         }
     } catch (error) {
         console.error("Login Error:", error.message);
+        console.error("Login Error Stack:", error.stack?.split('\n')[1]);
+        if (error.message && error.message.includes('buffering timed out')) {
+            return res.status(503).json({ success: false, error: 'Database is connecting, please try again in a moment.' });
+        }
         res.status(500).json({ success: false, error: 'Database is offline or Server Error' });
     }
 };
