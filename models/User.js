@@ -25,9 +25,17 @@ const userSchema = new mongoose.Schema({
     },
     password: {
         type: String,
-        required: [true, 'Please add a password'],
         minlength: 6,
         select: false
+    },
+    googleId: {
+        type: String,
+        default: ''
+    },
+    authProvider: {
+        type: String,
+        enum: ['local', 'google'],
+        default: 'local'
     },
     resetPasswordToken: String,
     resetPasswordExpire: Date,
@@ -58,7 +66,7 @@ userSchema.methods.getResetPasswordToken = function () {
 
 // Encrypt password using bcrypt
 userSchema.pre('save', async function () {
-    if (!this.isModified('password')) {
+    if (!this.isModified('password') || !this.password) {
         return;
     }
 
