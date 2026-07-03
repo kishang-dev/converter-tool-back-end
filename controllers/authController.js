@@ -128,14 +128,14 @@ exports.forgotPassword = async (req, res) => {
                         <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.08);">
                             <!-- Header -->
                             <tr><td style="background:linear-gradient(135deg,#4f46e5,#7c3aed);padding:36px 40px;text-align:center;">
-                                <h1 style="margin:0;color:#ffffff;font-size:28px;font-weight:700;letter-spacing:-0.5px;">🧺 ToolBasket</h1>
+                                <h1 style="margin:0;color:#ffffff;font-size:28px;font-weight:700;letter-spacing:-0.5px;">🧺 ToolBasketAI</h1>
                                 <p style="margin:8px 0 0;color:rgba(255,255,255,0.8);font-size:14px;">Your All-in-One Document Toolkit</p>
                             </td></tr>
                             <!-- Body -->
                             <tr><td style="padding:40px;">
                                 <h2 style="margin:0 0 16px;color:#1e1e2e;font-size:22px;">Reset Your Password</h2>
                                 <p style="color:#555;font-size:15px;line-height:1.6;margin:0 0 24px;">
-                                    We received a request to reset the password for your ToolBasket account associated with <strong>${user.email}</strong>.
+                                    We received a request to reset the password for your ToolBasketAI account associated with <strong>${user.email}</strong>.
                                     Click the button below to set a new password.
                                 </p>
                                 <div style="text-align:center;margin:32px 0;">
@@ -154,7 +154,7 @@ exports.forgotPassword = async (req, res) => {
                             </td></tr>
                             <!-- Footer -->
                             <tr><td style="background:#f9f9f9;padding:20px 40px;text-align:center;border-top:1px solid #eee;">
-                                <p style="color:#bbb;font-size:12px;margin:0;">© ${new Date().getFullYear()} ToolBasket · <a href="${frontendUrl}" style="color:#4f46e5;text-decoration:none;">toolbasketai.com</a></p>
+                                <p style="color:#bbb;font-size:12px;margin:0;">© ${new Date().getFullYear()} ToolBasketAI · <a href="${frontendUrl}" style="color:#4f46e5;text-decoration:none;">toolbasketai.com</a></p>
                             </td></tr>
                         </table>
                     </td></tr>
@@ -166,7 +166,7 @@ exports.forgotPassword = async (req, res) => {
         try {
             await sendEmail({
                 email: user.email,
-                subject: 'ToolBasket — Reset Your Password',
+                subject: 'ToolBasketAI — Reset Your Password',
                 message: `You requested a password reset. Visit this link to reset your password (expires in 10 minutes): ${resetUrl}`,
                 html: htmlEmail,
             });
@@ -229,7 +229,7 @@ exports.resetPassword = async (req, res) => {
 exports.updateUser = async (req, res) => {
     try {
         const { name, phone } = req.body;
-        
+
         // Find user
         const user = await User.findById(req.user._id);
         if (!user) {

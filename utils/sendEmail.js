@@ -23,7 +23,7 @@ const sendEmail = async (options) => {
     });
 
     const mailOptions = {
-        from: `"ToolBasket" <${process.env.EMAIL_USER}>`,
+        from: `"ToolBasketAI" <${process.env.EMAIL_USER}>`,
         to: options.email,
         subject: options.subject,
         text: options.message,
