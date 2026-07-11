@@ -93,6 +93,7 @@ const speechToPdfRoutes = require("./routes/speechToPdfRoutes");
 const conversionRoutes = require("./routes/conversionRoutes");
 const chartRoutes = require("./routes/chartRoutes");
 const developerToolsRoutes = require("./routes/developerToolsRoutes");
+const blogRoutes = require("./routes/blogRoutes");
 
 // Mount Routes
 app.use("/api/files", fileRoutes);
@@ -106,6 +107,7 @@ app.use("/api/resumes", require("./routes/resumeRoutes"));
 app.use("/api/charts", chartRoutes);
 app.use("/api/support", require("./routes/supportRoutes"));
 app.use("/api/devtools", developerToolsRoutes);
+app.use("/api/blogs", blogRoutes);
 
 // Health Check Route
 app.get("/health", (req, res) => {
