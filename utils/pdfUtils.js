@@ -999,14 +999,9 @@ async function assemblePDF(filePath, pageSpecs) {
   // Ideally we pass all indices at once for performance, but if we need specific order matching the specs,
   // we might need to be careful. validSpecs IS the order.
 
-  const indicesToCopy = validSpecs.map((spec) => spec.index);
-
-  // copyPages returns pages in the order of indices provided.
-  const copiedPages = await newPdf.copyPages(pdfDoc, indicesToCopy);
-
   for (let i = 0; i < validSpecs.length; i++) {
     const spec = validSpecs[i];
-    const page = copiedPages[i];
+    const [page] = await newPdf.copyPages(pdfDoc, [spec.index]);
 
     // Apply rotation
     if (spec.rotation) {

@@ -269,7 +269,11 @@ exports.pdfToText = async (req, res) => {
                 // A more advanced version would sort by y-position
                 page.Texts.forEach(text => {
                     text.R.forEach(r => {
-                        fullText += decodeURIComponent(r.T) + " ";
+                        try {
+                            fullText += decodeURIComponent(r.T) + " ";
+                        } catch (e) {
+                            fullText += unescape(r.T) + " ";
+                        }
                     });
                     // Add newline if typical line break? hard to guess without layout analysis.
                     // pdf2json doesn't give explicit lines easily in raw text mode without analysis.
@@ -327,22 +331,32 @@ exports.pdfToHtml = async (req, res) => {
 
                 let content = "";
                 for (const r of text.R) {
-                    content += decodeURIComponent(r.T);
+                    try {
+                        content += decodeURIComponent(r.T);
+                    } catch (e) {
+                        content += unescape(r.T);
+                    }
                 }
 
                 const fontSize = (text.R[0].TS[1] || 12) * (scale / 22);
+                const isBold = text.R[0].TS[2] === 1;
+                const isItalic = text.R[0].TS[3] === 1;
+                // 'oc' is original color in hex provided by pdf2json in some cases, otherwise fallback to #333
+                const color = text.oc || '#333333';
 
-                htmlContent += `<div class="text-layer" style="left: ${x}px; top: ${y}px; font-size: ${fontSize}px;">${content}</div>`;
+                const styleStr = `left: ${x}px; top: ${y}px; font-size: ${fontSize}px; font-weight: ${isBold ? 'bold' : 'normal'}; font-style: ${isItalic ? 'italic' : 'normal'}; color: ${color}; font-family: 'Inter', 'Segoe UI', sans-serif;`;
+
+                htmlContent += `<div class="text-layer" style="${styleStr}">${content}</div>`;
             }
 
-            // Basic fills
+            // Basic fills (like background rectangles)
             for (const fill of page.Fills || []) {
                 const x = fill.x * scale;
                 const y = fill.y * scale;
                 const w = fill.w * scale;
                 const h = fill.h * scale;
-                // color parsing is complex in pdf2json (it's often an index or similar), skipping for now to avoid errors
-                // htmlContent += `<div style="position: absolute; left: ${x}px; top: ${y}px; width: ${w}px; height: ${h}px; background-color: #ccc; opacity: 0.2;"></div>`;
+                const color = fill.oc || '#f0f0f0';
+                htmlContent += `<div style="position: absolute; left: ${x}px; top: ${y}px; width: ${w}px; height: ${h}px; background-color: ${color}; z-index: -1;"></div>`;
             }
 
             htmlContent += `</div>`;
