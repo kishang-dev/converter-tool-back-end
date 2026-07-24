@@ -309,8 +309,12 @@ exports.updateResume = async (req, res) => {
     try {
         let resume = await Resume.findOne({ _id: req.params.id, user: req.user.id });
         if (!resume) return res.status(404).json({ error: 'Resume not found' });
-        
-        resume = await Resume.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+
+        // Remove _id from body to prevent immutable field error
+        const updateData = { ...req.body };
+        delete updateData._id;
+
+        resume = await Resume.findByIdAndUpdate(req.params.id, updateData, { new: true, runValidators: true });
         res.status(200).json({ success: true, data: resume });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -321,7 +325,7 @@ exports.deleteResume = async (req, res) => {
     try {
         const resume = await Resume.findOne({ _id: req.params.id, user: req.user.id });
         if (!resume) return res.status(404).json({ error: 'Resume not found' });
-        
+
         await resume.deleteOne();
         res.status(200).json({ success: true, message: 'Resume deleted successfully' });
     } catch (error) {

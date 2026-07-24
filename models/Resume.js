@@ -64,6 +64,36 @@ const resumeSchema = new mongoose.Schema({
             proficiency: String
         }
     ],
+    awards: [
+        {
+            title: String,
+            issuer: String,
+            date: String
+        }
+    ],
+    interests: [String],
+    references: [
+        {
+            name: String,
+            position: String,
+            company: String,
+            contact: String
+        }
+    ],
+    publications: [
+        {
+            title: String,
+            publisher: String,
+            date: String,
+            url: String
+        }
+    ],
+    volunteer: [{ organization: String, role: String, startDate: String, endDate: String, description: String }],
+    softSkills: [String],
+    coursework: [String],
+    patents: [{ title: String, date: String, url: String, description: String }],
+    speakingEngagements: [{ title: String, event: String, date: String, url: String }],
+    testimonials: [{ name: String, quote: String, position: String }],
     template: {
         type: String,
         default: 'modern'
@@ -75,6 +105,21 @@ const resumeSchema = new mongoose.Schema({
     font: {
         type: String,
         default: 'Inter'
+    },
+    styling: {
+        fontSize: {
+            name: { type: Number, default: 48 },
+            headings: { type: Number, default: 14 },
+            body: { type: Number, default: 10 }
+        },
+        sectionFonts: {
+            name: { type: String, default: 'Inter' },
+            headings: { type: String, default: 'Inter' },
+            body: { type: String, default: 'Inter' }
+        },
+        lineHeight: { type: Number, default: 1.5 },
+        margins: { type: String, default: 'normal' },
+        pageSize: { type: String, default: 'A4' }
     },
     createdAt: {
         type: Date,
