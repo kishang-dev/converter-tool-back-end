@@ -352,9 +352,12 @@ exports.exportResume = async (req, res) => {
         const { getBrowser } = require('../utils/browserUtils');
         const browser = await getBrowser();
         const page = await browser.newPage();
-        await page.setViewport({ width: 1200, height: 1600 });
-        await page.setContent(html, { waitUntil: 'networkidle0', timeout: 60000 });
-        await new Promise(r => setTimeout(r, 1000));
+        await page.setViewport({ width: 794, height: 1123, deviceScaleFactor: 2 });
+        await page.setContent(html, { waitUntil: ['load', 'networkidle0'], timeout: 60000 });
+        await page.evaluate(async () => {
+            try { await document.fonts.ready; } catch (e) {}
+        });
+        await new Promise(r => setTimeout(r, 500));
 
         const outputPath = path.join(__dirname, '../outputs', filename);
         const outputsDir = path.join(__dirname, '../outputs');
@@ -364,6 +367,7 @@ exports.exportResume = async (req, res) => {
         const pdfBuffer = await page.pdf({
             format: 'A4',
             printBackground: true,
+            preferCSSPageSize: true,
             margin: { top: '0px', right: '0px', bottom: '0px', left: '0px' }
         });
         await browser.close();
