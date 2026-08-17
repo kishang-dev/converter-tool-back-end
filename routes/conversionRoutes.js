@@ -26,6 +26,9 @@ router.post('/video-to-pdf', extraConversionController.videoToPdf);
 router.post('/audio-to-pdf', extraConversionController.audioToPdf);
 router.post('/transcribe-file', extraConversionController.transcribeFile);
 router.post('/transcribe-chunk', upload.single('audio'), extraConversionController.transcribeChunk);
+router.post('/svg-to-image', extraConversionController.svgToImage);
+router.post('/image-watermark', extraConversionController.watermarkImage);
+
 
 // YAML ↔ JSON & CSV ↔ JSON Converters
 router.post('/yaml-to-json', conversionController.yamlToJson);

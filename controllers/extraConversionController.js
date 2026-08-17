@@ -966,3 +966,105 @@ exports.audioToPdf = async (req, res) => {
         res.status(500).json({ error: "Conversion failed", details: error.message });
     }
 };
+
+// SVG to Raster Image (PNG, JPG, WEBP)
+exports.svgToImage = async (req, res) => {
+    try {
+        const { fileId, targetFormat = "png", density = 300 } = req.body;
+        const file = await File.findById(fileId);
+        if (!file) return res.status(404).json({ error: "File not found" });
+
+        const sharp = require("sharp");
+        const format = targetFormat.toLowerCase();
+        const validFormats = ["png", "jpeg", "jpg", "webp"];
+        const outExt = format === "jpeg" ? "jpg" : (validFormats.includes(format) ? format : "png");
+        
+        const outputPath = path.join(__dirname, "../outputs", `converted-${Date.now()}.${outExt}`);
+        
+        let sharpInstance = sharp(file.path, { density: Number(density) || 300 });
+
+        if (outExt === "jpg" || outExt === "jpeg") {
+          sharpInstance = sharpInstance.jpeg({ quality: 95 });
+        } else if (outExt === "webp") {
+          sharpInstance = sharpInstance.webp({ quality: 90 });
+        } else {
+          sharpInstance = sharpInstance.png();
+        }
+
+        await sharpInstance.toFile(outputPath);
+
+        const newFile = await createFileRecord(
+            req,
+            file.originalName.replace(/\.[^/.]+$/, "") + `.${outExt}`,
+            outputPath,
+            `image/${outExt === 'jpg' ? 'jpeg' : outExt}`,
+            "svg-to-image"
+        );
+
+        res.json({
+            success: true,
+            message: `SVG successfully converted to ${outExt.toUpperCase()}`,
+            file: newFile,
+            downloadUrl: `/outputs/${path.basename(outputPath)}`
+        });
+    } catch (error) {
+        console.error("SVG to Image Error:", error);
+        res.status(500).json({ error: "SVG to Image conversion failed", details: error.message });
+    }
+};
+
+// Image Watermark Overlay
+exports.watermarkImage = async (req, res) => {
+    try {
+        const { fileId, text = "WATERMARK", color = "#ffffff", opacity = 0.5, fontSize = 36 } = req.body;
+        const file = await File.findById(fileId);
+        if (!file) return res.status(404).json({ error: "File not found" });
+
+        const sharp = require("sharp");
+        const metadata = await sharp(file.path).metadata();
+        const imgWidth = metadata.width || 800;
+        const imgHeight = metadata.height || 600;
+
+        // Construct SVG overlay for watermarking text
+        const svgWatermark = `
+          <svg width="${imgWidth}" height="${imgHeight}">
+            <style>
+              .watermark-text {
+                fill: ${color};
+                font-size: ${fontSize}px;
+                font-family: sans-serif;
+                font-weight: bold;
+                opacity: ${opacity};
+              }
+            </style>
+            <text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" class="watermark-text">${text}</text>
+          </svg>
+        `;
+
+        const ext = path.extname(file.originalName) || ".png";
+        const outputPath = path.join(__dirname, "../outputs", `watermarked-${Date.now()}${ext}`);
+
+        await sharp(file.path)
+            .composite([{ input: Buffer.from(svgWatermark), top: 0, left: 0 }])
+            .toFile(outputPath);
+
+        const newFile = await createFileRecord(
+            req,
+            `watermarked-${file.originalName}`,
+            outputPath,
+            file.mimeType || "image/png",
+            "image-watermark"
+        );
+
+        res.json({
+            success: true,
+            message: "Image watermark added successfully",
+            file: newFile,
+            downloadUrl: `/outputs/${path.basename(outputPath)}`
+        });
+    } catch (error) {
+        console.error("Image Watermark Error:", error);
+        res.status(500).json({ error: "Failed to watermark image", details: error.message });
+    }
+};
+

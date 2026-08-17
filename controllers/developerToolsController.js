@@ -131,3 +131,78 @@ exports.minifyCode = (req, res) => {
         res.status(500).json({ error: "Minification failed", details: error.message });
     }
 };
+
+// 6. Cryptographic Hashes & UUID Generator
+exports.generateHashes = (req, res) => {
+    try {
+        const crypto = require("crypto");
+        const { text = "" } = req.body;
+
+        const md5 = crypto.createHash("md5").update(text).digest("hex");
+        const sha1 = crypto.createHash("sha1").update(text).digest("hex");
+        const sha256 = crypto.createHash("sha256").update(text).digest("hex");
+        const sha512 = crypto.createHash("sha512").update(text).digest("hex");
+        const uuidv4 = crypto.randomUUID();
+
+        res.json({
+            success: true,
+            result: {
+                md5,
+                sha1,
+                sha256,
+                sha512,
+                uuid: uuidv4,
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ error: "Hash generation failed", details: error.message });
+    }
+};
+
+// 7. URL Encoder, Decoder & Query Parser
+exports.processUrl = (req, res) => {
+    try {
+        const { url = "", action = "parse" } = req.body;
+        if (!url) return res.status(400).json({ error: "URL or string input is required" });
+
+        let encoded = "";
+        let decoded = "";
+        let parsed = null;
+
+        try {
+            encoded = encodeURIComponent(url);
+            decoded = decodeURIComponent(url);
+        } catch (e) {}
+
+        try {
+            const urlObj = new URL(url.startsWith("http") ? url : `https://${url}`);
+            const queryParams = {};
+            urlObj.searchParams.forEach((val, key) => {
+                queryParams[key] = val;
+            });
+            parsed = {
+                protocol: urlObj.protocol,
+                host: urlObj.host,
+                hostname: urlObj.hostname,
+                port: urlObj.port,
+                pathname: urlObj.pathname,
+                search: urlObj.search,
+                hash: urlObj.hash,
+                queryParams
+            };
+        } catch (e) {}
+
+        res.json({
+            success: true,
+            result: {
+                original: url,
+                encoded,
+                decoded,
+                parsed
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ error: "URL processing failed", details: error.message });
+    }
+};
+

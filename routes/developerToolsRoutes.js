@@ -21,4 +21,11 @@ router.post('/sql/format', developerToolsController.formatSql);
 // Code Minifier
 router.post('/code/minify', developerToolsController.minifyCode);
 
+// Hash & UUID Generator
+router.post('/hash/generate', developerToolsController.generateHashes);
+
+// URL Encoder / Decoder
+router.post('/url/process', developerToolsController.processUrl);
+
 module.exports = router;
+

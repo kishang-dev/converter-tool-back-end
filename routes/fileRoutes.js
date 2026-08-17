@@ -24,7 +24,10 @@ router.post("/compress", checkUsage, fileController.compressFile);
 router.post("/protect", checkUsage, fileController.protectFile);
 router.post("/unlock", checkUsage, fileController.unlockFile);
 router.post("/edit", checkUsage, fileController.editFile);
+router.post("/watermark", checkUsage, fileController.addWatermark);
+router.post("/add-numbers", checkUsage, fileController.addPageNumbers);
 router.post("/:id/add-page", checkUsage, fileController.addPage);
+
 
 // Conversions
 router.post("/to-image", checkUsage, fileController.convertToImage);

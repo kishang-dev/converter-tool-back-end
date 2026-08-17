@@ -1050,3 +1050,138 @@ async function unlockPDF(filePath, password) {
     throw new Error("Failed to decrypt PDF. Please check if the password is correct.");
   }
 }
+
+// Add Watermark to PDF
+async function addWatermarkToPDF(filePath, text = "CONFIDENTIAL", options = {}) {
+  try {
+    const pdfBytes = await fs.readFile(filePath);
+    const pdfDoc = await PDFDocument.load(pdfBytes);
+    const pages = pdfDoc.getPages();
+    const { rgb, StandardFonts, degrees } = require("pdf-lib");
+
+    const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    const fontSize = options.size ? Number(options.size) : 48;
+    const opacity = options.opacity ? Number(options.opacity) : 0.3;
+    const rotationDegrees = options.rotation !== undefined ? Number(options.rotation) : 45;
+
+    // Parse hex color if provided, default to grey
+    let colorRgb = rgb(0.5, 0.5, 0.5);
+    if (options.color && options.color.startsWith("#") && options.color.length === 7) {
+      const r = parseInt(options.color.slice(1, 3), 16) / 255;
+      const g = parseInt(options.color.slice(3, 5), 16) / 255;
+      const b = parseInt(options.color.slice(5, 7), 16) / 255;
+      colorRgb = rgb(r, g, b);
+    }
+
+    pages.forEach((page) => {
+      const { width, height } = page.getSize();
+      const textWidth = font.widthOfTextAtSize(text, fontSize);
+      const textHeight = font.heightAtSize(fontSize);
+
+      const x = (width - textWidth) / 2;
+      const y = (height - textHeight) / 2;
+
+      page.drawText(text, {
+        x,
+        y,
+        size: fontSize,
+        font,
+        color: colorRgb,
+        opacity,
+        rotate: degrees(rotationDegrees),
+      });
+    });
+
+    const watermarkedBytes = await pdfDoc.save();
+    const outputPath = path.join(
+      __dirname,
+      "../outputs",
+      `watermarked-${Date.now()}.pdf`
+    );
+    await fs.writeFile(outputPath, watermarkedBytes);
+    return outputPath;
+  } catch (error) {
+    throw new Error(`Failed to add watermark to PDF: ${error.message}`);
+  }
+}
+
+// Add Page Numbers to PDF
+async function addPageNumbersToPDF(filePath, options = {}) {
+  try {
+    const pdfBytes = await fs.readFile(filePath);
+    const pdfDoc = await PDFDocument.load(pdfBytes);
+    const pages = pdfDoc.getPages();
+    const totalPages = pages.length;
+    const { rgb, StandardFonts } = require("pdf-lib");
+
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const fontSize = options.fontSize ? Number(options.fontSize) : 10;
+    const startNumber = options.startNumber ? Number(options.startNumber) : 1;
+    const position = options.position || "bottom-center"; // bottom-center, bottom-right, top-right, bottom-left
+
+    pages.forEach((page, index) => {
+      const pageNum = index + startNumber;
+      const text = options.format
+        ? options.format.replace("{n}", pageNum).replace("{total}", totalPages)
+        : `Page ${pageNum} of ${totalPages}`;
+
+      const { width, height } = page.getSize();
+      const textWidth = font.widthOfTextAtSize(text, fontSize);
+      const margin = 30;
+
+      let x = (width - textWidth) / 2;
+      let y = margin;
+
+      if (position === "bottom-right") {
+        x = width - textWidth - margin;
+        y = margin;
+      } else if (position === "bottom-left") {
+        x = margin;
+        y = margin;
+      } else if (position === "top-right") {
+        x = width - textWidth - margin;
+        y = height - margin;
+      } else if (position === "top-center") {
+        x = (width - textWidth) / 2;
+        y = height - margin;
+      }
+
+      page.drawText(text, {
+        x,
+        y,
+        size: fontSize,
+        font,
+        color: rgb(0.2, 0.2, 0.2),
+      });
+    });
+
+    const numberedBytes = await pdfDoc.save();
+    const outputPath = path.join(
+      __dirname,
+      "../outputs",
+      `numbered-${Date.now()}.pdf`
+    );
+    await fs.writeFile(outputPath, numberedBytes);
+    return outputPath;
+  } catch (error) {
+    throw new Error(`Failed to add page numbers to PDF: ${error.message}`);
+  }
+}
+
+module.exports = {
+  mergePDFs,
+  splitPDF,
+  compressPDF,
+  rotatePDF,
+  protectPDF,
+  pdfToImage,
+  pdfToWord,
+  pdfToExcel,
+  assemblePDF,
+  extractPageText,
+  modifyPageContent,
+  addBlankPage,
+  unlockPDF,
+  addWatermarkToPDF,
+  addPageNumbersToPDF,
+};

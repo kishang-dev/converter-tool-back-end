@@ -508,3 +508,68 @@ exports.addPage = async (req, res) => {
         res.status(500).json({ error: "Failed to add page" });
     }
 };
+
+exports.addWatermark = async (req, res) => {
+    try {
+        const { fileId, text, opacity, size, rotation, color } = req.body;
+        const file = await File.findById(fileId);
+        if (!file) return res.status(404).json({ error: "File not found" });
+
+        const { addWatermarkToPDF } = require("../utils/pdfUtils");
+        const outputPath = await addWatermarkToPDF(file.path, text, { opacity, size, rotation, color });
+
+        const newFile = await File.create({
+            originalName: `watermarked-${file.originalName}`,
+            filename: path.basename(outputPath),
+            path: outputPath,
+            size: (await fs.stat(outputPath)).size,
+            mimeType: "application/pdf",
+            operation: "watermark",
+            user: req.user ? req.user._id : undefined,
+            guestId: req.user ? undefined : req.headers['x-guest-id']
+        });
+
+        res.json({
+            success: true,
+            message: "Watermark added successfully",
+            file: newFile,
+            downloadUrl: `/outputs/${path.basename(outputPath)}`
+        });
+    } catch (error) {
+        console.error("Add Watermark Error:", error);
+        res.status(500).json({ error: "Failed to add watermark to PDF", details: error.message });
+    }
+};
+
+exports.addPageNumbers = async (req, res) => {
+    try {
+        const { fileId, position, startNumber, fontSize, format } = req.body;
+        const file = await File.findById(fileId);
+        if (!file) return res.status(404).json({ error: "File not found" });
+
+        const { addPageNumbersToPDF } = require("../utils/pdfUtils");
+        const outputPath = await addPageNumbersToPDF(file.path, { position, startNumber, fontSize, format });
+
+        const newFile = await File.create({
+            originalName: `numbered-${file.originalName}`,
+            filename: path.basename(outputPath),
+            path: outputPath,
+            size: (await fs.stat(outputPath)).size,
+            mimeType: "application/pdf",
+            operation: "add-numbers",
+            user: req.user ? req.user._id : undefined,
+            guestId: req.user ? undefined : req.headers['x-guest-id']
+        });
+
+        res.json({
+            success: true,
+            message: "Page numbers added successfully",
+            file: newFile,
+            downloadUrl: `/outputs/${path.basename(outputPath)}`
+        });
+    } catch (error) {
+        console.error("Add Page Numbers Error:", error);
+        res.status(500).json({ error: "Failed to add page numbers to PDF", details: error.message });
+    }
+};
+
