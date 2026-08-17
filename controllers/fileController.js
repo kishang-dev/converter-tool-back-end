@@ -573,3 +573,124 @@ exports.addPageNumbers = async (req, res) => {
     }
 };
 
+exports.extractPages = async (req, res) => {
+    try {
+        const { fileId, pages } = req.body;
+        const file = await File.findById(fileId);
+        if (!file) return res.status(404).json({ error: "File not found" });
+
+        const { extractPagesPDF } = require("../utils/pdfUtils");
+        const outputPath = await extractPagesPDF(file.path, pages);
+
+        const newFile = await File.create({
+            originalName: `extracted-${file.originalName}`,
+            filename: path.basename(outputPath),
+            path: outputPath,
+            size: (await fs.stat(outputPath)).size,
+            mimeType: "application/pdf",
+            operation: "extract-pages"
+        });
+
+        res.json({ success: true, file: newFile, downloadUrl: `/outputs/${path.basename(outputPath)}` });
+    } catch (error) {
+        res.status(500).json({ error: "Failed to extract PDF pages", details: error.message });
+    }
+};
+
+exports.deletePages = async (req, res) => {
+    try {
+        const { fileId, pages } = req.body;
+        const file = await File.findById(fileId);
+        if (!file) return res.status(404).json({ error: "File not found" });
+
+        const { deletePagesPDF } = require("../utils/pdfUtils");
+        const outputPath = await deletePagesPDF(file.path, pages);
+
+        const newFile = await File.create({
+            originalName: `deleted-${file.originalName}`,
+            filename: path.basename(outputPath),
+            path: outputPath,
+            size: (await fs.stat(outputPath)).size,
+            mimeType: "application/pdf",
+            operation: "delete-pages"
+        });
+
+        res.json({ success: true, file: newFile, downloadUrl: `/outputs/${path.basename(outputPath)}` });
+    } catch (error) {
+        res.status(500).json({ error: "Failed to delete PDF pages", details: error.message });
+    }
+};
+
+exports.convertToGrayscale = async (req, res) => {
+    try {
+        const { fileId } = req.body;
+        const file = await File.findById(fileId);
+        if (!file) return res.status(404).json({ error: "File not found" });
+
+        const { convertToGrayscalePDF } = require("../utils/pdfUtils");
+        const outputPath = await convertToGrayscalePDF(file.path);
+
+        const newFile = await File.create({
+            originalName: `grayscale-${file.originalName}`,
+            filename: path.basename(outputPath),
+            path: outputPath,
+            size: (await fs.stat(outputPath)).size,
+            mimeType: "application/pdf",
+            operation: "grayscale"
+        });
+
+        res.json({ success: true, file: newFile, downloadUrl: `/outputs/${path.basename(outputPath)}` });
+    } catch (error) {
+        res.status(500).json({ error: "Failed to convert PDF to grayscale", details: error.message });
+    }
+};
+
+exports.updateMetadata = async (req, res) => {
+    try {
+        const { fileId, title, author, subject, keywords } = req.body;
+        const file = await File.findById(fileId);
+        if (!file) return res.status(404).json({ error: "File not found" });
+
+        const { updateMetadataPDF } = require("../utils/pdfUtils");
+        const outputPath = await updateMetadataPDF(file.path, { title, author, subject, keywords });
+
+        const newFile = await File.create({
+            originalName: `metadata-${file.originalName}`,
+            filename: path.basename(outputPath),
+            path: outputPath,
+            size: (await fs.stat(outputPath)).size,
+            mimeType: "application/pdf",
+            operation: "metadata"
+        });
+
+        res.json({ success: true, file: newFile, downloadUrl: `/outputs/${path.basename(outputPath)}` });
+    } catch (error) {
+        res.status(500).json({ error: "Failed to update PDF metadata", details: error.message });
+    }
+};
+
+exports.reorderPages = async (req, res) => {
+    try {
+        const { fileId, pageOrder } = req.body;
+        const file = await File.findById(fileId);
+        if (!file) return res.status(404).json({ error: "File not found" });
+
+        const { reorderPagesPDF } = require("../utils/pdfUtils");
+        const outputPath = await reorderPagesPDF(file.path, pageOrder);
+
+        const newFile = await File.create({
+            originalName: `reordered-${file.originalName}`,
+            filename: path.basename(outputPath),
+            path: outputPath,
+            size: (await fs.stat(outputPath)).size,
+            mimeType: "application/pdf",
+            operation: "reorder"
+        });
+
+        res.json({ success: true, file: newFile, downloadUrl: `/outputs/${path.basename(outputPath)}` });
+    } catch (error) {
+        res.status(500).json({ error: "Failed to reorder PDF pages", details: error.message });
+    }
+};
+
+

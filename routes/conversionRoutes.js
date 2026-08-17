@@ -28,6 +28,19 @@ router.post('/transcribe-file', extraConversionController.transcribeFile);
 router.post('/transcribe-chunk', upload.single('audio'), extraConversionController.transcribeChunk);
 router.post('/svg-to-image', extraConversionController.svgToImage);
 router.post('/image-watermark', extraConversionController.watermarkImage);
+router.post('/image-compress', extraConversionController.compressImage);
+router.post('/png-to-webp', extraConversionController.pngToWebp);
+router.post('/jpg-to-webp', extraConversionController.jpgToWebp);
+router.post('/image-palette', extraConversionController.extractPalette);
+router.post('/optimize-svg', extraConversionController.optimizeSvg);
+router.post('/word-to-text', extraConversionController.wordToText);
+router.post('/excel-to-csv', extraConversionController.excelToCsv);
+router.post('/csv-to-excel', extraConversionController.csvToExcel);
+router.post('/text-to-word', extraConversionController.textToWord);
+router.post('/html-to-word', extraConversionController.htmlToWord);
+router.post('/text-to-image', extraConversionController.textToImage);
+
+
 
 
 // YAML ↔ JSON & CSV ↔ JSON Converters

@@ -26,7 +26,13 @@ router.post("/unlock", checkUsage, fileController.unlockFile);
 router.post("/edit", checkUsage, fileController.editFile);
 router.post("/watermark", checkUsage, fileController.addWatermark);
 router.post("/add-numbers", checkUsage, fileController.addPageNumbers);
+router.post("/extract-pages", checkUsage, fileController.extractPages);
+router.post("/delete-pages", checkUsage, fileController.deletePages);
+router.post("/grayscale", checkUsage, fileController.convertToGrayscale);
+router.post("/metadata", checkUsage, fileController.updateMetadata);
+router.post("/reorder-pages", checkUsage, fileController.reorderPages);
 router.post("/:id/add-page", checkUsage, fileController.addPage);
+
 
 
 // Conversions

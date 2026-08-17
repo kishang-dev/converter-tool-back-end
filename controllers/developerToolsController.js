@@ -206,3 +206,95 @@ exports.processUrl = (req, res) => {
     }
 };
 
+// 8. HTML Formatter & Sanitizer
+exports.formatHtml = (req, res) => {
+    try {
+        const { code = "" } = req.body;
+        const formatted = code
+            .replace(/></g, ">\n<")
+            .split("\n")
+            .map((line) => line.trim())
+            .filter((line) => line.length > 0)
+            .join("\n");
+        res.json({ success: true, result: formatted });
+    } catch (error) {
+        res.status(500).json({ error: "HTML formatting failed", details: error.message });
+    }
+};
+
+// 9. CSS Formatter
+exports.formatCss = (req, res) => {
+    try {
+        const { code = "" } = req.body;
+        const formatted = code
+            .replace(/\s*{\s*/g, " {\n  ")
+            .replace(/;\s*/g, ";\n  ")
+            .replace(/\s*}\s*/g, "\n}\n\n")
+            .trim();
+        res.json({ success: true, result: formatted });
+    } catch (error) {
+        res.status(500).json({ error: "CSS formatting failed", details: error.message });
+    }
+};
+
+// 10. JS/TS Formatter
+exports.formatJs = (req, res) => {
+    try {
+        const { code = "" } = req.body;
+        const formatted = code
+            .replace(/;\s*/g, ";\n")
+            .replace(/{\s*/g, "{\n  ")
+            .replace(/}\s*/g, "\n}\n");
+        res.json({ success: true, result: formatted });
+    } catch (error) {
+        res.status(500).json({ error: "JS formatting failed", details: error.message });
+    }
+};
+
+// 11. String Case Converter
+exports.convertCase = (req, res) => {
+    try {
+        const { text = "" } = req.body;
+        const words = text.split(/[\s_\-]+/).filter((w) => w.length > 0);
+        
+        const camelCase = words.map((w, i) => (i === 0 ? w.toLowerCase() : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())).join("");
+        const pascalCase = words.map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join("");
+        const snakeCase = words.map((w) => w.toLowerCase()).join("_");
+        const kebabCase = words.map((w) => w.toLowerCase()).join("-");
+        const upperCase = text.toUpperCase();
+        const lowerCase = text.toLowerCase();
+
+        res.json({ success: true, result: { camelCase, pascalCase, snakeCase, kebabCase, upperCase, lowerCase } });
+    } catch (error) {
+        res.status(500).json({ error: "Case conversion failed", details: error.message });
+    }
+};
+
+// 12. Text Difference Checker
+exports.compareTextDiff = (req, res) => {
+    try {
+        const { original = "", modified = "" } = req.body;
+        const origLines = original.split("\n");
+        const modLines = modified.split("\n");
+        const maxLines = Math.max(origLines.length, modLines.length);
+
+        const diffs = [];
+        for (let i = 0; i < maxLines; i++) {
+            const lineOrig = origLines[i] || "";
+            const lineMod = modLines[i] || "";
+            let status = "unchanged";
+            if (lineOrig !== lineMod) {
+                if (!origLines[i]) status = "added";
+                else if (!modLines[i]) status = "removed";
+                else status = "modified";
+            }
+            diffs.push({ line: i + 1, original: lineOrig, modified: lineMod, status });
+        }
+
+        res.json({ success: true, diffs });
+    } catch (error) {
+        res.status(500).json({ error: "Text diff comparison failed", details: error.message });
+    }
+};
+
+

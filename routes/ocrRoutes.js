@@ -15,7 +15,14 @@ router.post(
   ocrController.uploadAndOcr
 );
 
-// Retrieve OCR data by image ID
 router.get("/ocr-data/:imageId", ocrController.getOcrData);
 
+// Specialized OCR Routes
+router.post("/image-to-text", checkUsage, imageUpload.single("image"), ocrController.imageToTextOcr);
+router.post("/handwriting", checkUsage, imageUpload.single("image"), ocrController.handwritingOcr);
+router.post("/receipt", checkUsage, imageUpload.single("image"), ocrController.receiptOcr);
+router.post("/pdf-text", checkUsage, imageUpload.single("file"), ocrController.pdfOcrText);
+router.post("/multilingual", checkUsage, imageUpload.single("image"), ocrController.multilingualOcr);
+
 module.exports = router;
+

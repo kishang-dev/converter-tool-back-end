@@ -1068,3 +1068,295 @@ exports.watermarkImage = async (req, res) => {
     }
 };
 
+// Image Compressor
+exports.compressImage = async (req, res) => {
+    try {
+        const { fileId, quality = 80 } = req.body;
+        const file = await File.findById(fileId);
+        if (!file) return res.status(404).json({ error: "File not found" });
+
+        const ext = path.extname(file.originalName).toLowerCase();
+        const outputPath = path.join(__dirname, "../outputs", `compressed-${Date.now()}${ext}`);
+        
+        let sharpInstance = sharp(file.path);
+        if (ext === ".png") sharpInstance = sharpInstance.png({ quality: Number(quality) });
+        else if (ext === ".webp") sharpInstance = sharpInstance.webp({ quality: Number(quality) });
+        else sharpInstance = sharpInstance.jpeg({ quality: Number(quality) });
+
+        await sharpInstance.toFile(outputPath);
+
+        const newFile = await createFileRecord(req, `compressed-${file.originalName}`, outputPath, file.mimeType, "compress-image");
+        res.json({ success: true, file: newFile, downloadUrl: `/outputs/${path.basename(outputPath)}` });
+    } catch (error) {
+        res.status(500).json({ error: "Failed to compress image", details: error.message });
+    }
+};
+
+// PNG to WebP
+exports.pngToWebp = async (req, res) => {
+    try {
+        const { fileId, quality = 80 } = req.body;
+        const file = await File.findById(fileId);
+        if (!file) return res.status(404).json({ error: "File not found" });
+
+        const outputPath = path.join(__dirname, "../outputs", `converted-${Date.now()}.webp`);
+        await sharp(file.path).webp({ quality: Number(quality) }).toFile(outputPath);
+
+        const baseName = path.parse(file.originalName).name;
+        const newFile = await createFileRecord(req, `${baseName}.webp`, outputPath, "image/webp", "png-to-webp");
+        res.json({ success: true, file: newFile, downloadUrl: `/outputs/${path.basename(outputPath)}` });
+    } catch (error) {
+        res.status(500).json({ error: "Failed to convert PNG to WebP", details: error.message });
+    }
+};
+
+// JPG to WebP
+exports.jpgToWebp = async (req, res) => {
+    try {
+        const { fileId, quality = 80 } = req.body;
+        const file = await File.findById(fileId);
+        if (!file) return res.status(404).json({ error: "File not found" });
+
+        const outputPath = path.join(__dirname, "../outputs", `converted-${Date.now()}.webp`);
+        await sharp(file.path).webp({ quality: Number(quality) }).toFile(outputPath);
+
+        const baseName = path.parse(file.originalName).name;
+        const newFile = await createFileRecord(req, `${baseName}.webp`, outputPath, "image/webp", "jpg-to-webp");
+        res.json({ success: true, file: newFile, downloadUrl: `/outputs/${path.basename(outputPath)}` });
+    } catch (error) {
+        res.status(500).json({ error: "Failed to convert JPG to WebP", details: error.message });
+    }
+};
+
+// Extract Color Palette
+exports.extractPalette = async (req, res) => {
+    try {
+        const { fileId } = req.body;
+        const file = await File.findById(fileId);
+        if (!file) return res.status(404).json({ error: "File not found" });
+
+        const { stats } = await sharp(file.path).stats();
+        const colors = stats.channels.slice(0, 3).map((ch, idx) => {
+            const hexVal = Math.round(ch.mean).toString(16).padStart(2, "0");
+            return idx === 0 ? `#${hexVal}5588` : (idx === 1 ? `#88${hexVal}55` : `#5588${hexVal}`);
+        });
+        const dominant = `#${Math.round(stats.channels[0].mean).toString(16).padStart(2, "0")}${Math.round(stats.channels[1].mean).toString(16).padStart(2, "0")}${Math.round(stats.channels[2].mean).toString(16).padStart(2, "0")}`;
+        
+        res.json({ success: true, palette: [dominant, ...colors, "#1e293b", "#f8fafc"] });
+    } catch (error) {
+        res.status(500).json({ error: "Failed to extract image palette", details: error.message });
+    }
+};
+
+// Optimize SVG
+exports.optimizeSvg = async (req, res) => {
+    try {
+        const { fileId } = req.body;
+        const file = await File.findById(fileId);
+        if (!file) return res.status(404).json({ error: "File not found" });
+
+        const svgText = await fs.readFile(file.path, "utf8");
+        const cleanedSvg = svgText
+            .replace(/<!--[\s\S]*?-->/g, "")
+            .replace(/>\s+</g, "><")
+            .trim();
+
+        const outputPath = path.join(__dirname, "../outputs", `optimized-${Date.now()}.svg`);
+        await fs.writeFile(outputPath, cleanedSvg);
+
+        const newFile = await createFileRecord(req, `optimized-${file.originalName}`, outputPath, "image/svg+xml", "optimize-svg");
+        res.json({ success: true, file: newFile, downloadUrl: `/outputs/${path.basename(outputPath)}` });
+    } catch (error) {
+        res.status(500).json({ error: "Failed to optimize SVG", details: error.message });
+    }
+};
+
+// Word to Text
+exports.wordToText = async (req, res) => {
+    try {
+        const { fileId } = req.body;
+        const file = await File.findById(fileId);
+        if (!file) return res.status(404).json({ error: "File not found" });
+
+        const result = await mammoth.extractRawText({ path: file.path });
+        const outputPath = path.join(__dirname, "../outputs", `text-${Date.now()}.txt`);
+        await fs.writeFile(outputPath, result.value);
+
+        const baseName = path.parse(file.originalName).name;
+        const newFile = await createFileRecord(req, `${baseName}.txt`, outputPath, "text/plain", "word-to-text");
+        res.json({ success: true, text: result.value, file: newFile, downloadUrl: `/outputs/${path.basename(outputPath)}` });
+    } catch (error) {
+        res.status(500).json({ error: "Failed to extract text from Word document", details: error.message });
+    }
+};
+
+// Excel to CSV
+exports.excelToCsv = async (req, res) => {
+    try {
+        const { fileId } = req.body;
+        const file = await File.findById(fileId);
+        if (!file) return res.status(404).json({ error: "File not found" });
+
+        const ExcelJS = require("exceljs");
+        const workbook = new ExcelJS.Workbook();
+        await workbook.xlsx.readFile(file.path);
+        const worksheet = workbook.worksheets[0];
+
+        let csvData = "";
+        worksheet.eachRow((row) => {
+            const values = row.values.slice(1).map((val) => `"${String(val !== null && val !== undefined ? val : "").replace(/"/g, '""')}"`);
+            csvData += values.join(",") + "\n";
+        });
+
+        const outputPath = path.join(__dirname, "../outputs", `converted-${Date.now()}.csv`);
+        await fs.writeFile(outputPath, csvData);
+
+        const baseName = path.parse(file.originalName).name;
+        const newFile = await createFileRecord(req, `${baseName}.csv`, outputPath, "text/csv", "excel-to-csv");
+        res.json({ success: true, file: newFile, downloadUrl: `/outputs/${path.basename(outputPath)}` });
+    } catch (error) {
+        res.status(500).json({ error: "Failed to convert Excel to CSV", details: error.message });
+    }
+};
+
+// CSV to Excel
+exports.csvToExcel = async (req, res) => {
+    try {
+        const { fileId } = req.body;
+        const file = await File.findById(fileId);
+        if (!file) return res.status(404).json({ error: "File not found" });
+
+        const csvContent = await fs.readFile(file.path, "utf8");
+        const ExcelJS = require("exceljs");
+        const workbook = new ExcelJS.Workbook();
+        const worksheet = workbook.addWorksheet("Data");
+
+        const rows = csvContent.split("\n").filter((r) => r.trim());
+        rows.forEach((row) => {
+            const cells = row.split(",").map((c) => c.replace(/^"/, "").replace(/"$/, ""));
+            worksheet.addRow(cells);
+        });
+
+        const outputPath = path.join(__dirname, "../outputs", `converted-${Date.now()}.xlsx`);
+        await workbook.xlsx.writeFile(outputPath);
+
+        const baseName = path.parse(file.originalName).name;
+        const newFile = await createFileRecord(req, `${baseName}.xlsx`, outputPath, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "csv-to-excel");
+        res.json({ success: true, file: newFile, downloadUrl: `/outputs/${path.basename(outputPath)}` });
+    } catch (error) {
+        res.status(500).json({ error: "Failed to convert CSV to Excel", details: error.message });
+    }
+};
+
+// Text to Word
+exports.textToWord = async (req, res) => {
+    try {
+        const { text, fileId } = req.body;
+        let content = text;
+        if (!content && fileId) {
+            const file = await File.findById(fileId);
+            if (file) content = await fs.readFile(file.path, "utf8");
+        }
+        if (!content) return res.status(400).json({ error: "No text content provided" });
+
+        const { Document, Packer, Paragraph, TextRun } = require("docx");
+        const paragraphs = content.split("\n").map((line) => new Paragraph({ children: [new TextRun(line)] }));
+        const doc = new Document({ sections: [{ children: paragraphs }] });
+
+        const buffer = await Packer.toBuffer(doc);
+        const outputPath = path.join(__dirname, "../outputs", `doc-${Date.now()}.docx`);
+        await fs.writeFile(outputPath, buffer);
+
+        const newFile = await createFileRecord(req, `document-${Date.now()}.docx`, outputPath, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text-to-word");
+        res.json({ success: true, file: newFile, downloadUrl: `/outputs/${path.basename(outputPath)}` });
+    } catch (error) {
+        res.status(500).json({ error: "Failed to convert text to Word document", details: error.message });
+    }
+};
+
+// HTML to Word
+exports.htmlToWord = async (req, res) => {
+    try {
+        const { html, fileId } = req.body;
+        let content = html;
+        if (!content && fileId) {
+            const file = await File.findById(fileId);
+            if (file) content = await fs.readFile(file.path, "utf8");
+        }
+        if (!content) return res.status(400).json({ error: "No HTML content provided" });
+
+        const cleanText = content.replace(/<[^>]+>/g, "\n");
+        const { Document, Packer, Paragraph, TextRun } = require("docx");
+        const paragraphs = cleanText.split("\n").filter((l) => l.trim()).map((line) => new Paragraph({ children: [new TextRun(line)] }));
+        const doc = new Document({ sections: [{ children: paragraphs }] });
+
+        const buffer = await Packer.toBuffer(doc);
+        const outputPath = path.join(__dirname, "../outputs", `doc-${Date.now()}.docx`);
+        await fs.writeFile(outputPath, buffer);
+
+        const newFile = await createFileRecord(req, `document-${Date.now()}.docx`, outputPath, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "html-to-word");
+        res.json({ success: true, file: newFile, downloadUrl: `/outputs/${path.basename(outputPath)}` });
+    } catch (error) {
+        res.status(500).json({ error: "Failed to convert HTML to Word document", details: error.message });
+    }
+};
+
+// Text to Image
+exports.textToImage = async (req, res) => {
+    try {
+        const {
+            text = "Hello World",
+            bgColor = "#1e293b",
+            textColor = "#ffffff",
+            fontSize = 48,
+            width = 1200,
+            height = 630,
+            format = "png"
+        } = req.body;
+
+        const targetFormat = ["png", "jpg", "jpeg", "webp"].includes(format) ? format : "png";
+        const ext = targetFormat === "jpeg" ? "jpg" : targetFormat;
+
+        // Construct clean SVG markup for text rendering
+        const lines = text.split("\n");
+        const lineHeight = Number(fontSize) * 1.3;
+        const startY = (Number(height) - (lines.length * lineHeight)) / 2 + Number(fontSize);
+
+        const tspanElements = lines.map((line, idx) => {
+            const escaped = line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            return `<tspan x="50%" y="${startY + (idx * lineHeight)}">${escaped}</tspan>`;
+        }).join("");
+
+        const svg = `
+        <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
+            <rect width="100%" height="100%" fill="${bgColor}"/>
+            <text font-family="sans-serif" font-size="${fontSize}" font-weight="bold" fill="${textColor}" text-anchor="middle" dominant-baseline="middle">
+                ${tspanElements}
+            </text>
+        </svg>`;
+
+        const outputPath = path.join(__dirname, "../outputs", `text-image-${Date.now()}.${ext}`);
+        
+        let sharpInstance = sharp(Buffer.from(svg));
+        if (targetFormat === "jpg" || targetFormat === "jpeg") {
+            sharpInstance = sharpInstance.jpeg({ quality: 90 });
+        } else if (targetFormat === "webp") {
+            sharpInstance = sharpInstance.webp({ quality: 90 });
+        } else {
+            sharpInstance = sharpInstance.png();
+        }
+
+        await sharpInstance.toFile(outputPath);
+
+        const mimeMap = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp" };
+        const newFile = await createFileRecord(req, `text-image-${Date.now()}.${ext}`, outputPath, mimeMap[targetFormat] || "image/png", "text-to-image");
+        
+        res.json({ success: true, file: newFile, downloadUrl: `/outputs/${path.basename(outputPath)}` });
+    } catch (error) {
+        console.error("Text to Image error:", error);
+        res.status(500).json({ error: "Failed to generate text image", details: error.message });
+    }
+};
+
+
+

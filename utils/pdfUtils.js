@@ -1104,6 +1104,376 @@ async function addWatermarkToPDF(filePath, text = "CONFIDENTIAL", options = {}) 
     throw new Error(`Failed to add watermark to PDF: ${error.message}`);
   }
 }
+// Add Blank Page
+async function addBlankPage(filePath) {
+  const pdfBytes = await fs.readFile(filePath);
+  const pdfDoc = await PDFDocument.load(pdfBytes);
+
+  // Add a blank page. Default size is usually A4 (595.28 x 841.89) or matches document.
+  // Let's match the first page size if possible
+  const firstPage = pdfDoc.getPages()[0];
+  const { width, height } = firstPage ? firstPage.getSize() : { width: 595.28, height: 841.89 };
+
+  const newPage = pdfDoc.addPage([width, height]);
+
+  const newPdfBytes = await pdfDoc.save();
+  const outputPath = path.join(
+    __dirname,
+    "../outputs",
+    `added-page-${Date.now()}.pdf`
+  );
+  await fs.writeFile(outputPath, newPdfBytes);
+
+  return outputPath;
+}
+
+// Assemble PDF (Reorder/Rotate/Delete)
+async function assemblePDF(filePath, pageSpecs) {
+  // pageSpecs: Array of { index: number, rotation: number }
+  // index is 0-based index of page in original document
+  // rotation is degrees to ADD to current rotation (e.g. 90, 180, -90)
+
+  const pdfBytes = await fs.readFile(filePath);
+  const pdfDoc = await PDFDocument.load(pdfBytes);
+  const totalPages = pdfDoc.getPageCount();
+
+  const newPdf = await PDFDocument.create();
+
+  // Validate specs
+  const validSpecs = pageSpecs.filter(
+    (spec) => spec.index >= 0 && spec.index < totalPages
+  );
+
+  if (validSpecs.length === 0) {
+    throw new Error('No valid pages selected for the new PDF');
+  }
+
+  // We need to copy pages. Note: copyPages takes an array of indices.
+  // Ideally we pass all indices at once for performance, but if we need specific order matching the specs,
+  // we might need to be careful. validSpecs IS the order.
+
+  for (let i = 0; i < validSpecs.length; i++) {
+    const spec = validSpecs[i];
+    const [page] = await newPdf.copyPages(pdfDoc, [spec.index]);
+
+    // Apply rotation
+    if (spec.rotation) {
+      const currentRotation = page.getRotation().angle;
+      page.setRotation(degrees(currentRotation + spec.rotation));
+    }
+
+    newPdf.addPage(page);
+  }
+
+  const newPdfBytes = await newPdf.save();
+  const outputPath = path.join(
+    __dirname,
+    "../outputs",
+    `edited-${Date.now()}.pdf`
+  );
+  await fs.writeFile(outputPath, newPdfBytes);
+
+  return outputPath;
+}
+
+// Unlock a password-protected PDF
+async function unlockPDF(filePath, password) {
+  try {
+    const { decryptPDF } = require("@pdfsmaller/pdf-decrypt");
+    const fileBytes = await fs.readFile(filePath);
+    
+    // Validate PDF header
+    const header = fileBytes.subarray(0, 5).toString();
+    if (header !== "%PDF-") {
+      throw new Error("Invalid PDF file: No PDF header found");
+    }
+
+    const decryptedBytes = await decryptPDF(new Uint8Array(fileBytes), password);
+
+    const outputPath = path.join(
+      __dirname,
+      "../outputs",
+      `unlocked-${Date.now()}.pdf`
+    );
+    await fs.writeFile(outputPath, Buffer.from(decryptedBytes));
+
+    return outputPath;
+  } catch (error) {
+    console.error("unlockPDF error:", error);
+    throw new Error("Failed to decrypt PDF. Please check if the password is correct.");
+  }
+}
+
+// Add Watermark to PDF
+async function addWatermarkToPDF(filePath, text = "CONFIDENTIAL", options = {}) {
+  try {
+    const pdfBytes = await fs.readFile(filePath);
+    const pdfDoc = await PDFDocument.load(pdfBytes);
+    const pages = pdfDoc.getPages();
+    const { rgb, StandardFonts, degrees } = require("pdf-lib");
+
+    const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    const fontSize = options.size ? Number(options.size) : 48;
+    const opacity = options.opacity ? Number(options.opacity) : 0.3;
+    const rotationDegrees = options.rotation !== undefined ? Number(options.rotation) : 45;
+
+    // Parse hex color if provided, default to grey
+    let colorRgb = rgb(0.5, 0.5, 0.5);
+    if (options.color && options.color.startsWith("#") && options.color.length === 7) {
+      const r = parseInt(options.color.slice(1, 3), 16) / 255;
+      const g = parseInt(options.color.slice(3, 5), 16) / 255;
+      const b = parseInt(options.color.slice(5, 7), 16) / 255;
+      colorRgb = rgb(r, g, b);
+    }
+
+    pages.forEach((page) => {
+      const { width, height } = page.getSize();
+      const textWidth = font.widthOfTextAtSize(text, fontSize);
+      const textHeight = font.heightAtSize(fontSize);
+
+      const x = (width - textWidth) / 2;
+      const y = (height - textHeight) / 2;
+
+      page.drawText(text, {
+        x,
+        y,
+        size: fontSize,
+        font,
+        color: colorRgb,
+        opacity,
+        rotate: degrees(rotationDegrees),
+      });
+    });
+
+    const watermarkedBytes = await pdfDoc.save();
+    const outputPath = path.join(
+      __dirname,
+      "../outputs",
+      `watermarked-${Date.now()}.pdf`
+    );
+    await fs.writeFile(outputPath, watermarkedBytes);
+    return outputPath;
+  } catch (error) {
+    throw new Error(`Failed to add watermark to PDF: ${error.message}`);
+  }
+}
+
+// Add Page Numbers to PDF
+async function addPageNumbersToPDF(filePath, options = {}) {
+  try {
+    const pdfBytes = await fs.readFile(filePath);
+    const pdfDoc = await PDFDocument.load(pdfBytes);
+    const pages = pdfDoc.getPages();
+    const totalPages = pages.length;
+    const { rgb, StandardFonts } = require("pdf-lib");
+
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const fontSize = options.fontSize ? Number(options.fontSize) : 10;
+    const startNumber = options.startNumber ? Number(options.startNumber) : 1;
+    const position = options.position || "bottom-center"; // bottom-center, bottom-right, top-right, bottom-left
+
+    pages.forEach((page, index) => {
+      const pageNum = index + startNumber;
+      const text = options.format
+        ? options.format.replace("{n}", pageNum).replace("{total}", totalPages)
+        : `Page ${pageNum} of ${totalPages}`;
+
+      const { width, height } = page.getSize();
+      const textWidth = font.widthOfTextAtSize(text, fontSize);
+      const margin = 30;
+
+      let x = (width - textWidth) / 2;
+      let y = margin;
+
+      if (position === "bottom-right") {
+        x = width - textWidth - margin;
+        y = margin;
+      } else if (position === "bottom-left") {
+        x = margin;
+        y = margin;
+      } else if (position === "top-right") {
+        x = width - textWidth - margin;
+        y = height - margin;
+      } else if (position === "top-center") {
+        x = (width - textWidth) / 2;
+        y = height - margin;
+      }
+
+      page.drawText(text, {
+        x,
+        y,
+        size: fontSize,
+        font,
+        color: rgb(0, 0, 0),
+      });
+    });
+
+    const outputBytes = await pdfDoc.save();
+    const outputPath = path.join(
+      __dirname,
+      "../outputs",
+      `numbered-${Date.now()}.pdf`
+    );
+    await fs.writeFile(outputPath, outputBytes);
+    return outputPath;
+  } catch (error) {
+    throw new Error(`Failed to add page numbers: ${error.message}`);
+  }
+}
+
+// Add Blank Page
+async function addBlankPage(filePath) {
+  const pdfBytes = await fs.readFile(filePath);
+  const pdfDoc = await PDFDocument.load(pdfBytes);
+
+  // Add a blank page. Default size is usually A4 (595.28 x 841.89) or matches document.
+  // Let's match the first page size if possible
+  const firstPage = pdfDoc.getPages()[0];
+  const { width, height } = firstPage ? firstPage.getSize() : { width: 595.28, height: 841.89 };
+
+  const newPage = pdfDoc.addPage([width, height]);
+
+  const newPdfBytes = await pdfDoc.save();
+  const outputPath = path.join(
+    __dirname,
+    "../outputs",
+    `added-page-${Date.now()}.pdf`
+  );
+  await fs.writeFile(outputPath, newPdfBytes);
+
+  return outputPath;
+}
+
+// Assemble PDF (Reorder/Rotate/Delete)
+async function assemblePDF(filePath, pageSpecs) {
+  // pageSpecs: Array of { index: number, rotation: number }
+  // index is 0-based index of page in original document
+  // rotation is degrees to ADD to current rotation (e.g. 90, 180, -90)
+
+  const pdfBytes = await fs.readFile(filePath);
+  const pdfDoc = await PDFDocument.load(pdfBytes);
+  const totalPages = pdfDoc.getPageCount();
+
+  const newPdf = await PDFDocument.create();
+
+  // Validate specs
+  const validSpecs = pageSpecs.filter(
+    (spec) => spec.index >= 0 && spec.index < totalPages
+  );
+
+  if (validSpecs.length === 0) {
+    throw new Error('No valid pages selected for the new PDF');
+  }
+
+  // We need to copy pages. Note: copyPages takes an array of indices.
+  // Ideally we pass all indices at once for performance, but if we need specific order matching the specs,
+  // we might need to be careful. validSpecs IS the order.
+
+  for (let i = 0; i < validSpecs.length; i++) {
+    const spec = validSpecs[i];
+    const [page] = await newPdf.copyPages(pdfDoc, [spec.index]);
+
+    // Apply rotation
+    if (spec.rotation) {
+      const currentRotation = page.getRotation().angle;
+      page.setRotation(degrees(currentRotation + spec.rotation));
+    }
+
+    newPdf.addPage(page);
+  }
+
+  const newPdfBytes = await newPdf.save();
+  const outputPath = path.join(
+    __dirname,
+    "../outputs",
+    `edited-${Date.now()}.pdf`
+  );
+  await fs.writeFile(outputPath, newPdfBytes);
+
+  return outputPath;
+}
+
+// Unlock a password-protected PDF
+async function unlockPDF(filePath, password) {
+  try {
+    const { decryptPDF } = require("@pdfsmaller/pdf-decrypt");
+    const fileBytes = await fs.readFile(filePath);
+    
+    // Validate PDF header
+    const header = fileBytes.subarray(0, 5).toString();
+    if (header !== "%PDF-") {
+      throw new Error("Invalid PDF file: No PDF header found");
+    }
+
+    const decryptedBytes = await decryptPDF(new Uint8Array(fileBytes), password);
+
+    const outputPath = path.join(
+      __dirname,
+      "../outputs",
+      `unlocked-${Date.now()}.pdf`
+    );
+    await fs.writeFile(outputPath, Buffer.from(decryptedBytes));
+
+    return outputPath;
+  } catch (error) {
+    console.error("unlockPDF error:", error);
+    throw new Error("Failed to decrypt PDF. Please check if the password is correct.");
+  }
+}
+
+// Add Watermark to PDF
+async function addWatermarkToPDF(filePath, text = "CONFIDENTIAL", options = {}) {
+  try {
+    const pdfBytes = await fs.readFile(filePath);
+    const pdfDoc = await PDFDocument.load(pdfBytes);
+    const pages = pdfDoc.getPages();
+    const { rgb, StandardFonts, degrees } = require("pdf-lib");
+
+    const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    const fontSize = options.size ? Number(options.size) : 48;
+    const opacity = options.opacity ? Number(options.opacity) : 0.3;
+    const rotationDegrees = options.rotation !== undefined ? Number(options.rotation) : 45;
+
+    // Parse hex color if provided, default to grey
+    let colorRgb = rgb(0.5, 0.5, 0.5);
+    if (options.color && options.color.startsWith("#") && options.color.length === 7) {
+      const r = parseInt(options.color.slice(1, 3), 16) / 255;
+      const g = parseInt(options.color.slice(3, 5), 16) / 255;
+      const b = parseInt(options.color.slice(5, 7), 16) / 255;
+      colorRgb = rgb(r, g, b);
+    }
+
+    pages.forEach((page) => {
+      const { width, height } = page.getSize();
+      const textWidth = font.widthOfTextAtSize(text, fontSize);
+      const textHeight = font.heightAtSize(fontSize);
+
+      const x = (width - textWidth) / 2;
+      const y = (height - textHeight) / 2;
+
+      page.drawText(text, {
+        x,
+        y,
+        size: fontSize,
+        font,
+        color: colorRgb,
+        opacity,
+        rotate: degrees(rotationDegrees),
+      });
+    });
+
+    const watermarkedBytes = await pdfDoc.save();
+    const outputPath = path.join(
+      __dirname,
+      "../outputs",
+      `watermarked-${Date.now()}.pdf`
+    );
+    await fs.writeFile(outputPath, watermarkedBytes);
+    return outputPath;
+  } catch (error) {
+    throw new Error(`Failed to add watermark to PDF: ${error.message}`);
+  }
+}
 
 // Add Page Numbers to PDF
 async function addPageNumbersToPDF(filePath, options = {}) {
@@ -1168,6 +1538,123 @@ async function addPageNumbersToPDF(filePath, options = {}) {
   }
 }
 
+// Extract specific pages from PDF
+async function extractPagesPDF(filePath, pagesToExtract = []) {
+  try {
+    const pdfBytes = await fs.readFile(filePath);
+    const pdfDoc = await PDFDocument.load(pdfBytes);
+    const newPdf = await PDFDocument.create();
+
+    const pageIndices = pagesToExtract.map((p) => Number(p) - 1).filter((idx) => idx >= 0 && idx < pdfDoc.getPageCount());
+    const copiedPages = await newPdf.copyPages(pdfDoc, pageIndices.length > 0 ? pageIndices : [0]);
+    copiedPages.forEach((page) => newPdf.addPage(page));
+
+    const extractedBytes = await newPdf.save();
+    const outputPath = path.join(__dirname, "../outputs", `extracted-${Date.now()}.pdf`);
+    await fs.writeFile(outputPath, extractedBytes);
+    return outputPath;
+  } catch (error) {
+    throw new Error(`Failed to extract pages: ${error.message}`);
+  }
+}
+
+// Delete specific pages from PDF
+async function deletePagesPDF(filePath, pagesToDelete = []) {
+  try {
+    const pdfBytes = await fs.readFile(filePath);
+    const pdfDoc = await PDFDocument.load(pdfBytes);
+    const newPdf = await PDFDocument.create();
+
+    const deleteSet = new Set(pagesToDelete.map((p) => Number(p) - 1));
+    const keepIndices = [];
+    for (let i = 0; i < pdfDoc.getPageCount(); i++) {
+      if (!deleteSet.has(i)) keepIndices.push(i);
+    }
+
+    if (keepIndices.length === 0) throw new Error("Cannot delete all pages from PDF.");
+
+    const copiedPages = await newPdf.copyPages(pdfDoc, keepIndices);
+    copiedPages.forEach((page) => newPdf.addPage(page));
+
+    const resultBytes = await newPdf.save();
+    const outputPath = path.join(__dirname, "../outputs", `deleted-${Date.now()}.pdf`);
+    await fs.writeFile(outputPath, resultBytes);
+    return outputPath;
+  } catch (error) {
+    throw new Error(`Failed to delete pages: ${error.message}`);
+  }
+}
+
+// Convert PDF to Grayscale
+async function convertToGrayscalePDF(filePath) {
+  try {
+    const imagePaths = await pdfToImage(filePath);
+    const sharp = require("sharp");
+    const PDFDocumentGenerator = require("pdfkit");
+
+    const doc = new PDFDocumentGenerator({ autoFirstPage: false });
+    const outputPath = path.join(__dirname, "../outputs", `grayscale-${Date.now()}.pdf`);
+    const writeStream = fs.createWriteStream(outputPath);
+    doc.pipe(writeStream);
+
+    for (const imgPath of imagePaths) {
+      const grayBuffer = await sharp(imgPath).grayscale().toBuffer();
+      const img = doc.openImage(grayBuffer);
+      doc.addPage({ size: [img.width, img.height] });
+      doc.image(grayBuffer, 0, 0);
+      await fs.remove(imgPath).catch(() => {});
+    }
+
+    doc.end();
+    return new Promise((resolve, reject) => {
+      writeStream.on("finish", () => resolve(outputPath));
+      writeStream.on("error", reject);
+    });
+  } catch (error) {
+    throw new Error(`Failed to convert PDF to grayscale: ${error.message}`);
+  }
+}
+
+// Edit PDF Metadata
+async function updateMetadataPDF(filePath, metadata = {}) {
+  try {
+    const pdfBytes = await fs.readFile(filePath);
+    const pdfDoc = await PDFDocument.load(pdfBytes);
+
+    if (metadata.title) pdfDoc.setTitle(metadata.title);
+    if (metadata.author) pdfDoc.setAuthor(metadata.author);
+    if (metadata.subject) pdfDoc.setSubject(metadata.subject);
+    if (metadata.keywords) pdfDoc.setKeywords(Array.isArray(metadata.keywords) ? metadata.keywords : metadata.keywords.split(","));
+
+    const updatedBytes = await pdfDoc.save();
+    const outputPath = path.join(__dirname, "../outputs", `metadata-${Date.now()}.pdf`);
+    await fs.writeFile(outputPath, updatedBytes);
+    return outputPath;
+  } catch (error) {
+    throw new Error(`Failed to update PDF metadata: ${error.message}`);
+  }
+}
+
+// Reorder PDF Pages
+async function reorderPagesPDF(filePath, pageOrder = []) {
+  try {
+    const pdfBytes = await fs.readFile(filePath);
+    const pdfDoc = await PDFDocument.load(pdfBytes);
+    const newPdf = await PDFDocument.create();
+
+    const indices = pageOrder.map((p) => Number(p) - 1).filter((i) => i >= 0 && i < pdfDoc.getPageCount());
+    const copiedPages = await newPdf.copyPages(pdfDoc, indices);
+    copiedPages.forEach((p) => newPdf.addPage(p));
+
+    const reorderedBytes = await newPdf.save();
+    const outputPath = path.join(__dirname, "../outputs", `reordered-${Date.now()}.pdf`);
+    await fs.writeFile(outputPath, reorderedBytes);
+    return outputPath;
+  } catch (error) {
+    throw new Error(`Failed to reorder PDF pages: ${error.message}`);
+  }
+}
+
 module.exports = {
   mergePDFs,
   splitPDF,
@@ -1184,4 +1671,9 @@ module.exports = {
   unlockPDF,
   addWatermarkToPDF,
   addPageNumbersToPDF,
+  extractPagesPDF,
+  deletePagesPDF,
+  convertToGrayscalePDF,
+  updateMetadataPDF,
+  reorderPagesPDF,
 };

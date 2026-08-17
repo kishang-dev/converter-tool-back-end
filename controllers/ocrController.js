@@ -70,7 +70,81 @@ const getOcrData = async (req, res, next) => {
   }
 };
 
+const processOcrFile = async (req, lang = "eng") => {
+  if (!req.file) throw new Error("No file uploaded.");
+  const { createWorker } = require("tesseract.js");
+  const worker = await createWorker(lang);
+  const { data: { text } } = await worker.recognize(req.file.path);
+  await worker.terminate();
+  return text;
+};
+
+const imageToTextOcr = async (req, res) => {
+  try {
+    const text = await processOcrFile(req, "eng");
+    res.json({ success: true, text });
+  } catch (error) {
+    res.status(500).json({ error: "Image OCR failed", details: error.message });
+  }
+};
+
+const handwritingOcr = async (req, res) => {
+  try {
+    const text = await processOcrFile(req, "eng");
+    res.json({ success: true, text });
+  } catch (error) {
+    res.status(500).json({ error: "Handwriting OCR failed", details: error.message });
+  }
+};
+
+const receiptOcr = async (req, res) => {
+  try {
+    const text = await processOcrFile(req, "eng");
+    const lines = text.split("\n").filter((l) => l.trim());
+    const amounts = text.match(/\d+[\.,]\d{2}/g) || [];
+    res.json({ success: true, rawText: text, extracted: { lines, amounts, total: amounts[amounts.length - 1] || "N/A" } });
+  } catch (error) {
+    res.status(500).json({ error: "Receipt OCR failed", details: error.message });
+  }
+};
+
+const pdfOcrText = async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: "No PDF file uploaded" });
+    const { pdfToImage } = require("../utils/pdfUtils");
+    const imagePaths = await pdfToImage(req.file.path);
+    const { createWorker } = require("tesseract.js");
+    const worker = await createWorker("eng");
+    
+    let combinedText = "";
+    for (const imgPath of imagePaths) {
+      const { data: { text } } = await worker.recognize(imgPath);
+      combinedText += text + "\n\n";
+    }
+    await worker.terminate();
+    res.json({ success: true, text: combinedText });
+  } catch (error) {
+    res.status(500).json({ error: "PDF OCR failed", details: error.message });
+  }
+};
+
+const multilingualOcr = async (req, res) => {
+  try {
+    const { lang = "eng" } = req.body;
+    const text = await processOcrFile(req, lang);
+    res.json({ success: true, language: lang, text });
+  } catch (error) {
+    res.status(500).json({ error: "Multilingual OCR failed", details: error.message });
+  }
+};
+
 module.exports = {
   uploadAndOcr,
   getOcrData,
+  imageToTextOcr,
+  handwritingOcr,
+  receiptOcr,
+  pdfOcrText,
+  multilingualOcr,
 };
+

@@ -27,5 +27,13 @@ router.post('/hash/generate', developerToolsController.generateHashes);
 // URL Encoder / Decoder
 router.post('/url/process', developerToolsController.processUrl);
 
+// Formatting & Utilities
+router.post('/html/format', developerToolsController.formatHtml);
+router.post('/css/format', developerToolsController.formatCss);
+router.post('/js/format', developerToolsController.formatJs);
+router.post('/case/convert', developerToolsController.convertCase);
+router.post('/text/diff', developerToolsController.compareTextDiff);
+
 module.exports = router;
+
 
