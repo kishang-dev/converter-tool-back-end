@@ -78,10 +78,15 @@ exports.xmlToJson = (req, res) => {
 
 exports.jsonToXml = (req, res) => {
     try {
-        const { json } = req.body;
+        const { json, rootName = "root", itemName = "item", attrPrefix = "@", indent = 2 } = req.body;
         if (!json) return res.status(400).json({ error: "JSON is required" });
         const parsed = typeof json === "string" ? JSON.parse(json) : json;
-        const builder = new xml2js.Builder();
+        const builder = new xml2js.Builder({
+            rootName,
+            xmldec: { version: '1.0', encoding: 'UTF-8' },
+            attrkey: attrPrefix,
+            renderOpts: { pretty: true, indent: ' '.repeat(Number(indent) || 2) }
+        });
         const xml = builder.buildObject(parsed);
         res.json({ success: true, result: xml });
     } catch (error) {
@@ -136,22 +141,33 @@ exports.minifyCode = (req, res) => {
 exports.generateHashes = (req, res) => {
     try {
         const crypto = require("crypto");
-        const { text = "" } = req.body;
+        const { text = "", secretKey = "", isUppercase = false } = req.body;
 
-        const md5 = crypto.createHash("md5").update(text).digest("hex");
-        const sha1 = crypto.createHash("sha1").update(text).digest("hex");
-        const sha256 = crypto.createHash("sha256").update(text).digest("hex");
-        const sha512 = crypto.createHash("sha512").update(text).digest("hex");
+        const formatHash = (str) => (isUppercase ? str.toUpperCase() : str.toLowerCase());
+
+        let md5, sha1, sha256, sha512;
+        if (secretKey) {
+            md5 = crypto.createHmac("md5", secretKey).update(text).digest("hex");
+            sha1 = crypto.createHmac("sha1", secretKey).update(text).digest("hex");
+            sha256 = crypto.createHmac("sha256", secretKey).update(text).digest("hex");
+            sha512 = crypto.createHmac("sha512", secretKey).update(text).digest("hex");
+        } else {
+            md5 = crypto.createHash("md5").update(text).digest("hex");
+            sha1 = crypto.createHash("sha1").update(text).digest("hex");
+            sha256 = crypto.createHash("sha256").update(text).digest("hex");
+            sha512 = crypto.createHash("sha512").update(text).digest("hex");
+        }
         const uuidv4 = crypto.randomUUID();
 
         res.json({
             success: true,
             result: {
-                md5,
-                sha1,
-                sha256,
-                sha512,
+                md5: formatHash(md5),
+                sha1: formatHash(sha1),
+                sha256: formatHash(sha256),
+                sha512: formatHash(sha512),
                 uuid: uuidv4,
+                isHmac: Boolean(secretKey)
             }
         });
     } catch (error) {
@@ -167,11 +183,13 @@ exports.processUrl = (req, res) => {
 
         let encoded = "";
         let decoded = "";
+        let base64Url = "";
         let parsed = null;
 
         try {
             encoded = encodeURIComponent(url);
             decoded = decodeURIComponent(url);
+            base64Url = Buffer.from(url).toString("base64url");
         } catch (e) {}
 
         try {
@@ -198,6 +216,7 @@ exports.processUrl = (req, res) => {
                 original: url,
                 encoded,
                 decoded,
+                base64Url,
                 parsed
             }
         });
@@ -261,10 +280,35 @@ exports.convertCase = (req, res) => {
         const pascalCase = words.map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join("");
         const snakeCase = words.map((w) => w.toLowerCase()).join("_");
         const kebabCase = words.map((w) => w.toLowerCase()).join("-");
+        const constantCase = words.map((w) => w.toUpperCase()).join("_");
         const upperCase = text.toUpperCase();
         const lowerCase = text.toLowerCase();
+        const titleCase = words.map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
+        const sentenceCase = text.charAt(0).toUpperCase() + text.slice(1).toLowerCase();
+        const toggleCase = text.split("").map((c) => (c === c.toUpperCase() ? c.toLowerCase() : c.toUpperCase())).join("");
+        const dotCase = words.map((w) => w.toLowerCase()).join(".");
 
-        res.json({ success: true, result: { camelCase, pascalCase, snakeCase, kebabCase, upperCase, lowerCase } });
+        const charCount = text.length;
+        const wordCount = words.length;
+        const lineCount = text ? text.split(/\r\n|\r|\n/).length : 0;
+
+        res.json({
+            success: true,
+            result: {
+                camelCase,
+                pascalCase,
+                snakeCase,
+                kebabCase,
+                constantCase,
+                titleCase,
+                sentenceCase,
+                upperCase,
+                lowerCase,
+                toggleCase,
+                dotCase,
+                stats: { charCount, wordCount, lineCount }
+            }
+        });
     } catch (error) {
         res.status(500).json({ error: "Case conversion failed", details: error.message });
     }
@@ -273,25 +317,44 @@ exports.convertCase = (req, res) => {
 // 12. Text Difference Checker
 exports.compareTextDiff = (req, res) => {
     try {
-        const { original = "", modified = "" } = req.body;
+        const { original = "", modified = "", ignoreWhitespace = false, ignoreCase = false } = req.body;
         const origLines = original.split("\n");
         const modLines = modified.split("\n");
         const maxLines = Math.max(origLines.length, modLines.length);
 
         const diffs = [];
+        let addedCount = 0;
+        let removedCount = 0;
+        let modifiedCount = 0;
+        let unchangedCount = 0;
+
         for (let i = 0; i < maxLines; i++) {
-            const lineOrig = origLines[i] || "";
-            const lineMod = modLines[i] || "";
+            let lineOrig = origLines[i] !== undefined ? origLines[i] : "";
+            let lineMod = modLines[i] !== undefined ? modLines[i] : "";
+
+            let cmpOrig = ignoreWhitespace ? lineOrig.trim() : lineOrig;
+            let cmpMod = ignoreWhitespace ? lineMod.trim() : lineMod;
+            if (ignoreCase) {
+                cmpOrig = cmpOrig.toLowerCase();
+                cmpMod = cmpMod.toLowerCase();
+            }
+
             let status = "unchanged";
-            if (lineOrig !== lineMod) {
-                if (!origLines[i]) status = "added";
-                else if (!modLines[i]) status = "removed";
-                else status = "modified";
+            if (cmpOrig !== cmpMod) {
+                if (origLines[i] === undefined) { status = "added"; addedCount++; }
+                else if (modLines[i] === undefined) { status = "removed"; removedCount++; }
+                else { status = "modified"; modifiedCount++; }
+            } else {
+                unchangedCount++;
             }
             diffs.push({ line: i + 1, original: lineOrig, modified: lineMod, status });
         }
 
-        res.json({ success: true, diffs });
+        res.json({
+            success: true,
+            diffs,
+            stats: { addedCount, removedCount, modifiedCount, unchangedCount }
+        });
     } catch (error) {
         res.status(500).json({ error: "Text diff comparison failed", details: error.message });
     }

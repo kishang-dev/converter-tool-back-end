@@ -970,7 +970,7 @@ exports.audioToPdf = async (req, res) => {
 // SVG to Raster Image (PNG, JPG, WEBP)
 exports.svgToImage = async (req, res) => {
     try {
-        const { fileId, targetFormat = "png", density = 300 } = req.body;
+        const { fileId, targetFormat = "png", density = 300, scale = 1, bgColor } = req.body;
         const file = await File.findById(fileId);
         if (!file) return res.status(404).json({ error: "File not found" });
 
@@ -980,13 +980,18 @@ exports.svgToImage = async (req, res) => {
         const outExt = format === "jpeg" ? "jpg" : (validFormats.includes(format) ? format : "png");
         
         const outputPath = path.join(__dirname, "../outputs", `converted-${Date.now()}.${outExt}`);
+        const effectiveDensity = Math.min(1200, Math.max(72, Number(density) * (Number(scale) || 1)));
         
-        let sharpInstance = sharp(file.path, { density: Number(density) || 300 });
+        let sharpInstance = sharp(file.path, { density: effectiveDensity });
+
+        if (bgColor && bgColor !== "transparent") {
+            sharpInstance = sharpInstance.flatten({ background: bgColor });
+        }
 
         if (outExt === "jpg" || outExt === "jpeg") {
           sharpInstance = sharpInstance.jpeg({ quality: 95 });
         } else if (outExt === "webp") {
-          sharpInstance = sharpInstance.webp({ quality: 90 });
+          sharpInstance = sharpInstance.webp({ quality: 95 });
         } else {
           sharpInstance = sharpInstance.png();
         }
@@ -1016,7 +1021,16 @@ exports.svgToImage = async (req, res) => {
 // Image Watermark Overlay
 exports.watermarkImage = async (req, res) => {
     try {
-        const { fileId, text = "WATERMARK", color = "#ffffff", opacity = 0.5, fontSize = 36 } = req.body;
+        const {
+            fileId,
+            text = "WATERMARK",
+            color = "#ffffff",
+            strokeColor = "#000000",
+            opacity = 0.5,
+            fontSize = 36,
+            rotation = 0,
+            position = "center"
+        } = req.body;
         const file = await File.findById(fileId);
         if (!file) return res.status(404).json({ error: "File not found" });
 
@@ -1025,19 +1039,48 @@ exports.watermarkImage = async (req, res) => {
         const imgWidth = metadata.width || 800;
         const imgHeight = metadata.height || 600;
 
-        // Construct SVG overlay for watermarking text
-        const svgWatermark = `
+        let x = "50%";
+        let y = "50%";
+        let textAnchor = "middle";
+
+        switch (position) {
+            case "top-left": x = "5%"; y = "10%"; textAnchor = "start"; break;
+            case "top-center": x = "50%"; y = "10%"; textAnchor = "middle"; break;
+            case "top-right": x = "95%"; y = "10%"; textAnchor = "end"; break;
+            case "center-left": x = "5%"; y = "50%"; textAnchor = "start"; break;
+            case "center": x = "50%"; y = "50%"; textAnchor = "middle"; break;
+            case "center-right": x = "95%"; y = "50%"; textAnchor = "end"; break;
+            case "bottom-left": x = "5%"; y = "90%"; textAnchor = "start"; break;
+            case "bottom-center": x = "50%"; y = "90%"; textAnchor = "middle"; break;
+            case "bottom-right": x = "95%"; y = "90%"; textAnchor = "end"; break;
+        }
+
+        const isTile = position === "tile";
+
+        const svgWatermark = isTile ? `
+          <svg width="${imgWidth}" height="${imgHeight}">
+            <style>
+              .wm { fill: ${color}; font-size: ${fontSize}px; font-family: sans-serif; font-weight: bold; opacity: ${opacity}; }
+            </style>
+            <pattern id="wm-pattern" width="${fontSize * 6}" height="${fontSize * 4}" patternUnits="userSpaceOnUse" patternTransform="rotate(${rotation})">
+              <text x="10" y="${fontSize}" class="wm">${text}</text>
+            </pattern>
+            <rect width="100%" height="100%" fill="url(#wm-pattern)" />
+          </svg>
+        ` : `
           <svg width="${imgWidth}" height="${imgHeight}">
             <style>
               .watermark-text {
                 fill: ${color};
+                stroke: ${strokeColor};
+                stroke-width: 0.5px;
                 font-size: ${fontSize}px;
                 font-family: sans-serif;
                 font-weight: bold;
                 opacity: ${opacity};
               }
             </style>
-            <text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" class="watermark-text">${text}</text>
+            <text x="${x}" y="${y}" text-anchor="${textAnchor}" dominant-baseline="middle" class="watermark-text" transform="rotate(${rotation}, ${imgWidth/2}, ${imgHeight/2})">${text}</text>
           </svg>
         `;
 
@@ -1071,17 +1114,29 @@ exports.watermarkImage = async (req, res) => {
 // Image Compressor
 exports.compressImage = async (req, res) => {
     try {
-        const { fileId, quality = 80 } = req.body;
+        const { fileId, quality = 80, targetFormat, maxWidth, maxHeight } = req.body;
         const file = await File.findById(fileId);
         if (!file) return res.status(404).json({ error: "File not found" });
 
-        const ext = path.extname(file.originalName).toLowerCase();
-        const outputPath = path.join(__dirname, "../outputs", `compressed-${Date.now()}${ext}`);
+        const originalExt = path.extname(file.originalName).toLowerCase();
+        const targetExt = targetFormat ? `.${targetFormat.toLowerCase().replace("jpeg", "jpg")}` : originalExt;
+        const outputPath = path.join(__dirname, "../outputs", `compressed-${Date.now()}${targetExt}`);
         
         let sharpInstance = sharp(file.path);
-        if (ext === ".png") sharpInstance = sharpInstance.png({ quality: Number(quality) });
-        else if (ext === ".webp") sharpInstance = sharpInstance.webp({ quality: Number(quality) });
-        else sharpInstance = sharpInstance.jpeg({ quality: Number(quality) });
+
+        if (maxWidth || maxHeight) {
+            sharpInstance = sharpInstance.resize({
+                width: maxWidth ? Number(maxWidth) : undefined,
+                height: maxHeight ? Number(maxHeight) : undefined,
+                fit: 'inside',
+                withoutEnlargement: true
+            });
+        }
+
+        const q = Number(quality);
+        if (targetExt === ".png") sharpInstance = sharpInstance.png({ quality: q });
+        else if (targetExt === ".webp") sharpInstance = sharpInstance.webp({ quality: q });
+        else sharpInstance = sharpInstance.jpeg({ quality: q });
 
         await sharpInstance.toFile(outputPath);
 
@@ -1131,18 +1186,23 @@ exports.jpgToWebp = async (req, res) => {
 // Extract Color Palette
 exports.extractPalette = async (req, res) => {
     try {
-        const { fileId } = req.body;
+        const { fileId, count = 6 } = req.body;
         const file = await File.findById(fileId);
         if (!file) return res.status(404).json({ error: "File not found" });
 
         const { stats } = await sharp(file.path).stats();
-        const colors = stats.channels.slice(0, 3).map((ch, idx) => {
-            const hexVal = Math.round(ch.mean).toString(16).padStart(2, "0");
-            return idx === 0 ? `#${hexVal}5588` : (idx === 1 ? `#88${hexVal}55` : `#5588${hexVal}`);
-        });
         const dominant = `#${Math.round(stats.channels[0].mean).toString(16).padStart(2, "0")}${Math.round(stats.channels[1].mean).toString(16).padStart(2, "0")}${Math.round(stats.channels[2].mean).toString(16).padStart(2, "0")}`;
         
-        res.json({ success: true, palette: [dominant, ...colors, "#1e293b", "#f8fafc"] });
+        const palette = [dominant];
+        const step = 255 / (Number(count) || 6);
+        for (let i = 1; i < (Number(count) || 6); i++) {
+            const r = Math.round((stats.channels[0].mean + i * step) % 256).toString(16).padStart(2, "0");
+            const g = Math.round((stats.channels[1].mean + i * step * 0.7) % 256).toString(16).padStart(2, "0");
+            const b = Math.round((stats.channels[2].mean + i * step * 1.3) % 256).toString(16).padStart(2, "0");
+            palette.push(`#${r}${g}${b}`);
+        }
+        
+        res.json({ success: true, palette });
     } catch (error) {
         res.status(500).json({ error: "Failed to extract image palette", details: error.message });
     }
@@ -1151,15 +1211,14 @@ exports.extractPalette = async (req, res) => {
 // Optimize SVG
 exports.optimizeSvg = async (req, res) => {
     try {
-        const { fileId } = req.body;
+        const { fileId, removeComments = true, stripMetadata = true } = req.body;
         const file = await File.findById(fileId);
         if (!file) return res.status(404).json({ error: "File not found" });
 
-        const svgText = await fs.readFile(file.path, "utf8");
-        const cleanedSvg = svgText
-            .replace(/<!--[\s\S]*?-->/g, "")
-            .replace(/>\s+</g, "><")
-            .trim();
+        let svgText = await fs.readFile(file.path, "utf8");
+        if (removeComments) svgText = svgText.replace(/<!--[\s\S]*?-->/g, "");
+        if (stripMetadata) svgText = svgText.replace(/<metadata[\s\S]*?<\/metadata>/gi, "");
+        const cleanedSvg = svgText.replace(/>\s+</g, "><").trim();
 
         const outputPath = path.join(__dirname, "../outputs", `optimized-${Date.now()}.svg`);
         await fs.writeFile(outputPath, cleanedSvg);
