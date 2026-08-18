@@ -1304,7 +1304,7 @@ exports.htmlToWord = async (req, res) => {
 // Text to Image
 exports.textToImage = async (req, res) => {
     try {
-        const {
+        let {
             text = "Hello World",
             bgColor = "#1e293b",
             textColor = "#ffffff",
@@ -1314,23 +1314,69 @@ exports.textToImage = async (req, res) => {
             format = "png"
         } = req.body;
 
+        const canvasWidth = Math.max(100, Number(width) || 1200);
+        const canvasHeight = Math.max(100, Number(height) || 630);
+        let currentFontSize = Math.max(12, Number(fontSize) || 48);
+
         const targetFormat = ["png", "jpg", "jpeg", "webp"].includes(format) ? format : "png";
         const ext = targetFormat === "jpeg" ? "jpg" : targetFormat;
 
-        // Construct clean SVG markup for text rendering
-        const lines = text.split("\n");
-        const lineHeight = Number(fontSize) * 1.3;
-        const startY = (Number(height) - (lines.length * lineHeight)) / 2 + Number(fontSize);
+        // Word Wrapping Algorithm for SVG
+        const wrapTextToLines = (rawText, fSize, cWidth) => {
+            const printableWidth = cWidth * 0.88; // 6% padding on left and right
+            const charWidthApprox = fSize * 0.58; // Avg character width for bold sans-serif
+            const maxCharsPerLine = Math.max(5, Math.floor(printableWidth / charWidthApprox));
+
+            const rawParagraphs = rawText.split(/\r?\n/);
+            const finalLines = [];
+
+            for (const para of rawParagraphs) {
+                if (!para.trim()) {
+                    finalLines.push("");
+                    continue;
+                }
+                const words = para.split(/\s+/);
+                let currentLine = "";
+
+                for (const word of words) {
+                    if (!currentLine) {
+                        currentLine = word;
+                    } else if ((currentLine + " " + word).length <= maxCharsPerLine) {
+                        currentLine += " " + word;
+                    } else {
+                        finalLines.push(currentLine);
+                        currentLine = word;
+                    }
+                }
+                if (currentLine) {
+                    finalLines.push(currentLine);
+                }
+            }
+            return finalLines;
+        };
+
+        // Auto-scale font size if total text block height exceeds available canvas height
+        let lines = wrapTextToLines(text, currentFontSize, canvasWidth);
+        const maxAllowedHeight = canvasHeight * 0.85;
+
+        while (currentFontSize > 12 && (lines.length * (currentFontSize * 1.35)) > maxAllowedHeight) {
+            currentFontSize -= 2;
+            lines = wrapTextToLines(text, currentFontSize, canvasWidth);
+        }
+
+        const lineHeight = currentFontSize * 1.35;
+        const totalBlockHeight = lines.length * lineHeight;
+        const startY = (canvasHeight - totalBlockHeight) / 2 + (currentFontSize * 0.9);
 
         const tspanElements = lines.map((line, idx) => {
             const escaped = line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-            return `<tspan x="50%" y="${startY + (idx * lineHeight)}">${escaped}</tspan>`;
-        }).join("");
+            return `<tspan x="50%" dy="${idx === 0 ? 0 : lineHeight}">${escaped || ' '}</tspan>`;
+        }).join("\n");
 
         const svg = `
-        <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
+        <svg width="${canvasWidth}" height="${canvasHeight}" viewBox="0 0 ${canvasWidth} ${canvasHeight}" xmlns="http://www.w3.org/2000/svg">
             <rect width="100%" height="100%" fill="${bgColor}"/>
-            <text font-family="sans-serif" font-size="${fontSize}" font-weight="bold" fill="${textColor}" text-anchor="middle" dominant-baseline="middle">
+            <text x="50%" y="${startY}" font-family="sans-serif, Arial, Helvetica" font-size="${currentFontSize}" font-weight="bold" fill="${textColor}" text-anchor="middle">
                 ${tspanElements}
             </text>
         </svg>`;
@@ -1339,9 +1385,9 @@ exports.textToImage = async (req, res) => {
         
         let sharpInstance = sharp(Buffer.from(svg));
         if (targetFormat === "jpg" || targetFormat === "jpeg") {
-            sharpInstance = sharpInstance.jpeg({ quality: 90 });
+            sharpInstance = sharpInstance.jpeg({ quality: 95 });
         } else if (targetFormat === "webp") {
-            sharpInstance = sharpInstance.webp({ quality: 90 });
+            sharpInstance = sharpInstance.webp({ quality: 95 });
         } else {
             sharpInstance = sharpInstance.png();
         }
@@ -1357,6 +1403,7 @@ exports.textToImage = async (req, res) => {
         res.status(500).json({ error: "Failed to generate text image", details: error.message });
     }
 };
+
 
 
 
