@@ -3,5 +3,7 @@ node_modules/
 uploads/
 outputs/
 temp/
+.cache/
 *.log
 .DS_Store
+
