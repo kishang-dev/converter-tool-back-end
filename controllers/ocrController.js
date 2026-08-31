@@ -68,10 +68,6 @@ const getOcrData = async (req, res, next) => {
   }
 };
 
-const OcrData = require("../models/OcrData");
-const { performOcrAndSave } = require("../utils/ocrProcessor");
-const fs = require("fs-extra");
-const path = require("path");
 let sharp;
 try {
   sharp = require("sharp");
