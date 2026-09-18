@@ -99,3 +99,24 @@ exports.uploadBlogImage = async (req, res, next) => {
         next(error);
     }
 };
+
+// @desc    Auto-generate daily blog post using Gemini AI & custom cover image
+// @route   POST /api/blogs/auto-generate
+exports.autoGenerateBlog = async (req, res, next) => {
+    try {
+        const { generateNextToolBlog } = require('../utils/geminiBlogGenerator');
+        const blogDoc = await generateNextToolBlog();
+        res.status(201).json({
+            success: true,
+            message: 'Auto-generated tool blog post successfully using Gemini AI!',
+            data: blogDoc
+        });
+    } catch (error) {
+        console.error('Error auto-generating blog:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message || 'Failed to auto-generate blog with Gemini AI'
+        });
+    }
+};
+
